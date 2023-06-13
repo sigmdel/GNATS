@@ -8,7 +8,7 @@ Runs on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3*
 
 ## Hardware used
 
-  - ESP32 dev board such as XIAO ESP32C3 or XIAO ESP32S3
+  - ESP32 development board such as XIAO ESP32C3 or XIAO ESP32S3
   - GPS receiver supported by TinyGPSPlus such as the ATGM336H 5N-31
   - SSD1306 128x64 I2C OLED display (optional)
 
@@ -17,12 +17,12 @@ Runs on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3*
   - [TinyGPSPlus](https://github.com/mikalhart/TinyGPSPlus.git) by Mikal Hart at [Arduiniana](http://arduiniana.org). The library reads the $GNRMC NMEA messages from the GPS receiver and makes available the date and time data, among many other bits of information. Licence: unknown.
 
   - [ntp_server](lib/ntp_server/ntp_server.h) is a modified version of the NTP server (`ntp_server.h` and `ntp_server.cpp`) in the ElektorLabs [180662 mini NTP with ESP32](https://github.com/ElektorLabs/180662-mini-NTP-ESP32). There is a project description in the ElektorMag [mini-NTP server with GPS](https://www.elektormagazine.com/labs/mini-ntp-server-with-gps).
-License: GPLv3 or later at user choice.
+Licence: GPLv3 or later at user choice.
 
   - [OLED SSD1306 (ESP8266/ESP32/Mbed-OS)](https://github.com/ThingPulse/esp8266-oled-ssd1306)
-by ThingPulse is used to print the date and time on a small OLED screen. License: MIT.
+by ThingPulse is used to print the date and time on a small OLED screen. Licence: MIT.
 
-  - [smalldebug](lib/smalldebug.h) just defines two macros: DBG(...) and DBG(...). These are used throught the code instead of Serial.println(...) and Serial.printf(...). The advantage of using these macros is that all the print statements will be stripped from the compiled firmware when the ENABLE_DBG macro is set to 0. License: None.
+  - [smalldebug](lib/smalldebug.h) just defines two macros: DBG(...) and DBG(...). These are used throughout the code instead of Serial.println(...) and Serial.printf(...). The advantage of using these macros is that all the print statements will be stripped from the compiled firmware when the ENABLE_DBG macro is set to 0. Licence: None.
 
 ## Further documentation
 
