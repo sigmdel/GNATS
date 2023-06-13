@@ -1,0 +1,19 @@
+# .hgignore
+#
+
+syntax: glob
+
+.git
+.pio
+.vscode
+*.zip
+*.bak
+*.~
+secrets.h
+domoticz_data.h
+user_config.h
+extra/
+
+08_ticker_hdw/hdw_kit/
+09_with_cmd/hdw_kit/
+09_with_cmd/hdw_alt
