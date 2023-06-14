@@ -1,4 +1,4 @@
-# GNATS' Not Accurate Time Server
+# GNAT'S Nearly Accurate Time Server
 
 *A tiny and very basic NTP server based on a GPS receiver.  
 Runs on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3*
