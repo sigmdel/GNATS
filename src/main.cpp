@@ -3,7 +3,7 @@
  / ___| \ | |  / \|_   _/ ___| 
 | |  _|  \| | / _ \ | | \___ \ 
 | |_| | |\  |/ ___ \| |  ___) | 
- \____|_| \_/_/   \_\_| |____/  GNATS' Not Accurate Time Server
+ \____|_| \_/_/   \_\_| |____/  GNAT'S Nearly Accurate Time Server
 
 A tiny and very basic NTP server based on a GPS receiver and running
 on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3
@@ -34,7 +34,7 @@ on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3
 #if defined(SYNC_POLL_TIME)
 unsigned long timePollInterval = SYNC_POLL_TIME;
 #else
-unsigned long timePollInterval = 5000;  // 5 seconds, for Arduino
+unsigned long timePollInterval = 10000;  // 10 seconds, for Arduino
 #endif
 
 // This is the delay  after the first successful update
@@ -62,26 +62,20 @@ Preferences preferences;
 // see https://man.archlinux.org/man/systemd-timesyncd.8#FILES
 time_t mclock = 0;
 
-// Last time mclock was saved to NVS
-unsigned long mclocktimer = 0;
-
 // Save the current RTC time to mclock and NVS
 // if GPS_POLL_TIME has elapsed and if the RTC time
 // is greater than mclock. Called whenever a new GPS
 // time is obtained
 void savemclock(void) {
-  if (millis() - mclocktimer >= GPS_POLL_TIME) {
-    mclocktimer = millis();
-    time_t newvalid;
-    time(&newvalid); // read current time from RTC
-    if (newvalid > mclock) {
-      // keep time moving along
-      mclock = newvalid;
-      preferences.begin("mclock", false);
-      preferences.putULong("time", mclock);   // save mclock value in NVS
-      preferences.end();
-      DBGF("Saving mclock = %u to NVS\n", mclock);
-    }
+  time_t newvalid;
+  time(&newvalid); // read current time from RTC
+  if (newvalid > mclock) {
+    // keep time moving along
+    mclock = newvalid;
+    preferences.begin("mclock", false);
+    preferences.putULong("time", mclock);   // save mclock value in NVS
+    preferences.end();
+    DBGF("Saving mclock = %u to NVS\n", mclock);
   }
 }
 
@@ -209,14 +203,16 @@ void gpssetime(uint32_t gpsDate, uint32_t gpsTime, uint32_t gpsAge) {
   }
 }
 
-void updateRTC(void) {
+
+bool updateRTC(void) {
   if (gps.date.isValid() && gps.time.isValid() && (gps.date.value())) {
     // NMEA messages such $GNRMC,,V,,,,,,,,,,M*4E return gps.date.isValid() = true
     // and gps.time.isValid() = true even when UTC Time == 0 and Date == 0
     // so a test that date of !0 is needed!
     gpssetime(gps.date.value(), gps.time.value(), gps.time.age());
+    return true;
   }
-  savemclock();
+  return false;
 }
 
 /************************/
@@ -319,6 +315,16 @@ void setup() {
 // System millis tick count of the last attempt to perform an update of the ESP32 RTC
 // Not keeping track of whether it was a succes or not.
 unsigned long lastRtcUpdate = 0;
+
+// System millis tick count of the last successful update of the ESP32 RTC from GPS data
+unsigned long lastRtcCorrection = 0;
+
+// System millis tick count of the last attept to save the current RTC time to
+// non-volatile storage. This is done independently of whether the RTC has been
+// updated by the GPS or not.
+unsigned long mclocktimer = 0;
+
+// System millis tock count of the last time the NO GPS FOUND message was shown
 unsigned long lastWarning = 0;
 
 #if (SHOW_NMEA > 0)
@@ -344,11 +350,19 @@ void loop(void) {
   }
 
   if (millis() - lastRtcUpdate >= timePollInterval) {
+    DBG("Time to update the RTC");
     lastRtcUpdate = millis();
-    updateRTC();
+    if (updateRTC())
+      lastRtcCorrection = millis();
   }
 
-  if ((millis() - lastWarning > GPS_POLL_TIME) && (gps.charsProcessed() < 10))  {
+  if (millis() - mclocktimer >= GPS_POLL_TIME) {
+    DBG("Time to set mclock and save it to NVS");
+    mclocktimer = millis();
+    savemclock();
+  }
+
+  if ((millis() - lastWarning > GPS_WARNING_TIME) && (gps.charsProcessed() < 10))  {
     lastWarning = millis();
     DBG("No GPS detected");
     #if (HAS_OLED > 0)
@@ -372,7 +386,7 @@ void loop(void) {
     // want to show local time, so set the timezone
     setenv("TZ", timeZone, 1);
     localtime_r(&lastUTCTime, &timeinfo);
-    strftime(timeBuffer, sizeof(timeBuffer), ((timesynched)  && (millis() - mclocktimer < 2*GPS_POLL_TIME))
+    strftime(timeBuffer, sizeof(timeBuffer), ((timesynched)  && (millis() - lastRtcCorrection <= 2*GPS_POLL_TIME))
       ? synchedTimeFormat : notSynchedTimeFormat, &timeinfo);
     strftime(dateBuffer, sizeof(dateBuffer), "%F", &timeinfo);
     DBGF("Local time: %s %s (utc %u)\n", dateBuffer, timeBuffer, lastUTCTime);
