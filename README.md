@@ -28,6 +28,12 @@ by ThingPulse is used to print the date and time on a small OLED screen. Licence
 
 [GNATS, a Tiny Basic ESP32 GPS Based NTP Server](https://sigmdel.ca/michel/program/esp32/arduino/esp32_gps_time_server_en.html)
 
+[Using a Local Network Time Server](https://sigmdel.ca/michel/program/esp32/arduino/local_timeserver_en.html)
+
+## Warning
+
+GNATS should not be used as the primary time source. However, it is accurate enough as a backup time source when access to better clocks is lost.
+
 ## Note
 
-Edit [secrets.h.template](src/secrets.h.template) and to save it as `secrets.h` in the `src` directory.
+Edit [secrets.h.template](src/secrets.h.template) and save it as `secrets.h` in the `src` directory before compiling the firmware.
