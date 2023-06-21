@@ -37,3 +37,7 @@ GNATS should not be used as the primary time source. However, it is accurate eno
 ## Note
 
 Edit [secrets.h.template](src/secrets.h.template) and save it as `secrets.h` in the `src` directory before compiling the firmware.
+
+## Licence
+
+The **BSD Zero Clause** ([SPDX](https://spdx.dev/): [0BSD](https://spdx.org/licenses/0BSD.html)) licence applies to all source not covered by another licence.
