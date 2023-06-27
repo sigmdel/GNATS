@@ -1,8 +1,8 @@
 /*
-  ____ _   _    _  _____ ____  
- / ___| \ | |  / \|_   _/ ___| 
-| |  _|  \| | / _ \ | | \___ \ 
-| |_| | |\  |/ ___ \| |  ___) | 
+  ____ _   _    _  _____ ____
+ / ___| \ | |  / \|_   _/ ___|
+| |  _|  \| | / _ \ | | \___ \
+| |_| | |\  |/ ___ \| |  ___) |
  \____|_| \_/_/   \_\_| |____/  GNATS' Not Accurate Time Server
 
 A tiny and very basic NTP server based on a GPS receiver and running
@@ -63,9 +63,7 @@ Preferences preferences;
 time_t mclock = 0;
 
 // Save the current RTC time to mclock and NVS
-// if GPS_POLL_TIME has elapsed and if the RTC time
-// is greater than mclock. Called whenever a new GPS
-// time is obtained
+// only if the current time is ahead of mclock.
 void savemclock(void) {
   time_t newvalid;
   time(&newvalid); // read current time from RTC
@@ -79,6 +77,9 @@ void savemclock(void) {
   }
 }
 
+// Set the current RTC time from the last saved mclock value
+// or from the firmware compilation time whichever is ahead.
+// Call only once on reboot
 void loadmclock(void) {
   preferences.begin("mclock", false);
   mclock = preferences.getULong("time", 0);  // default 0 if not already defined
@@ -117,6 +118,7 @@ void loadmclock(void) {
 }
 
 /*
+// never used...
 void clearmclock(void) {
   preferences.begin("mclock", false);
   preferences.putULong("time", 0);
@@ -154,7 +156,7 @@ static const int TXPin = -1;
 #endif
 
 // Updates the ESP32 RTC with the given GPS data which is UTC time
-// to the nearest second.
+// to the nearest second and use gpsAge to calculate fractions of a second
 void gpssetime(uint32_t gpsDate, uint32_t gpsTime, uint32_t gpsAge) {
   DBGF("gpssetime date: %u, time: %u\n", gpsDate, gpsTime);
   time_t now = 0;
