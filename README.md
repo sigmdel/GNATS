@@ -5,11 +5,15 @@ Runs on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3*
 
 ![icon](img/gnat_128x128.png) 
 
+## Changes
+
+2023-07-19: Added optional support for a DS3231 battery powered real time clock. 
 
 ## Hardware used
 
   - ESP32 development board such as XIAO ESP32C3 or XIAO ESP32S3
   - GPS receiver supported by TinyGPSPlus such as the ATGM336H 5N-31
+  - DS3231 Battery backed real time clock (optional)
   - SSD1306 128x64 I2C OLED display (optional)
 
 ## Libraries 
@@ -21,6 +25,8 @@ Licence: GPLv3 or later at user choice.
 
   - [OLED SSD1306 (ESP8266/ESP32/Mbed-OS)](https://github.com/ThingPulse/esp8266-oled-ssd1306)
 by ThingPulse is used to print the date and time on a small OLED screen. Licence: MIT.
+
+  - [Rtc](https://github.com/Makuna/Rtc) by Michael Miller (Makuna) is used to read a battery powered DS3231 real time clock which will provide the initial time to set the ESP real time clock until GPS time is available.
 
   - [smalldebug](lib/smalldebug.h) just defines two macros: DBG(...) and DBG(...). These are used throughout the code instead of Serial.println(...) and Serial.printf(...). The advantage of using these macros is that all the print statements will be stripped from the compiled firmware when the ENABLE_DBG macro is set to 0. Licence: None.
 

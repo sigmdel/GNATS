@@ -19,8 +19,14 @@ on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3
 #include "ntp_server.h"           // in lib/
 #include "secrets.h"              // use secrets.h.template to create this file
 #include "TinyGPSPlus.h"          // loaded with platformio directive
+
+#if (HAS_DS3231 > 0)
+#include <Wire.h>                 // Arduino I2C library
+#include <RtcDS3231.h>            // in .pio/libdeps
+#endif
+
 #if (HAS_OLED > 0)
-#include "SSD1306Wire.h"          // hardware driver for SSD1306 OLED display
+#include "SSD1306Wire.h"          // hardware driver for SSD1306 OLED display in .pio/libdeps
 #endif
 
 #if (SHOW_NMEA>0) && (!ENABLE_DGB)
@@ -37,7 +43,7 @@ unsigned long timePollInterval = SYNC_POLL_TIME;
 unsigned long timePollInterval = 10000;  // 10 seconds, for Arduino
 #endif
 
-// This is the delay  after the first successful update
+// This is the delay after the first successful update
 #if !defined(GPS_POLL_TIME)
 #define GPS_POLL_TIME = 3600000;        // 1 hours, for Arduino
 #endif
@@ -48,33 +54,73 @@ unsigned long timePollInterval = 10000;  // 10 seconds, for Arduino
 
 NTP_Server NTPServer;
 
+
+/*********************************/
+/* * * DS3231 - External RTC * * */
+/*********************************/
+
+#if (HAS_DS3231 > 0)
+
+RtcDS3231<TwoWire> ExtRtc(Wire);
+
+void InitExtRtc(void) {
+    DBG("Initializing external real time clock - DS3231");
+    ExtRtc.Begin();
+    #if defined(WIRE_HAS_TIMEOUT)
+      Wire.setWireTimeout(3000 /* us */, true /* reset_on_timeout */);
+    #endif
+    if (!ExtRtc.GetIsRunning())
+      ExtRtc.SetIsRunning(true);
+    // Default configuration - disable everything
+    ExtRtc.Enable32kHzPin(false);
+    ExtRtc.SetSquareWavePin(DS3231SquareWavePin_ModeNone);
+}
+
+uint32_t extRtcTime(void) {
+  if (ExtRtc.IsDateTimeValid()) {
+    RtcDateTime drtc = ExtRtc.GetDateTime();
+    return drtc.Unix32Time();
+  }
+  return 0; // error!
+}
+
+#endif
+
 /**********************/
 /* * * Saved time * * */
 /**********************/
-
 
 Preferences preferences;
 
 // A timestamp that is updated at regular intervals and saved to non-volatile storage
 // which can be used to set the ESP RTC on booting even before an update from a
 // better time source is available. It is also used to ensure that updates of the
-// RTC time move forward. This is very much like the systemd-timesyncd clock file
+// ESP RTC time move forward. This is very much like the systemd-timesyncd clock file
 // see https://man.archlinux.org/man/systemd-timesyncd.8#FILES
 time_t mclock = 0;
 
-// Save the current RTC time to mclock and NVS
-// only if the current time is ahead of mclock.
+// Save the current ESP RTC time to mclock, to an external RTC, and to NVS
+// assuming it is greater or equal to mclock
 void savemclock(void) {
   time_t newvalid;
-  time(&newvalid); // read current time from RTC
-  if (newvalid > mclock) {
+  time(&newvalid); // read current time from the ESP RTC
+  if (newvalid < mclock) {
     // keep time moving along
-    mclock = newvalid;
-    preferences.begin("mclock", false);
-    preferences.putULong("time", mclock);   // save mclock value in NVS
-    preferences.end();
-    DBGF("Saving mclock = %u to NVS\n", mclock);
+    DBGF("Time moving backwards!");
+    return;
   }
+  mclock = newvalid;
+  #if (HAS_DS3231 > 0)
+    // update hardware real time clock with GPS time
+    RtcDateTime drtc;
+    drtc.InitWithUnix32Time(mclock);
+    ExtRtc.SetDateTime(drtc);
+    DBGF("Saving mclock = %u to hardware external clock\n", mclock);
+  #endif
+  preferences.begin("mclock", false);
+  preferences.putULong("time", mclock);   // save mclock value in NVS
+  preferences.end();
+  DBGF("Saving mclock = %u to NVS\n", mclock);
 }
 
 // Set the current RTC time from the last saved mclock value
@@ -83,7 +129,6 @@ void savemclock(void) {
 void loadmclock(void) {
   preferences.begin("mclock", false);
   mclock = preferences.getULong("time", 0);  // default 0 if not already defined
-
   // In the arduino IDE, use https://github.com/sigmdel/mdBuildTime
   //
   // setenv("TZ", timeZone, 1);
@@ -91,18 +136,32 @@ void loadmclock(void) {
   // if (mclock < compileTime) {
   //  mclock = compileTime;
   //  ...
+
+  #if (ENABLE_DBG > 0)
+  if (mclock) {
+    DBG("Using time saved to NVS");
+  }
+  #endif
+
+  #if (HAS_DS3231 > 0)
+  uint32_t xrtcnow = extRtcTime();
+  if (mclock < xrtcnow) {
+    mclock = xrtcnow;
+    DBG("Using external RTC time as last known time");
+  }
+  #endif
+
   if (mclock < COMPILE_TIME) {
     mclock = COMPILE_TIME; // Unix timestamp macro set in platformio.ini
     DBG("Using compile time as last known time");
-    preferences.putULong("time", mclock);   // save mclock value in NVS
   }
-  preferences.end();
 
   if (mclock) {
     timeval tv;
     tv.tv_sec = mclock ;
     tv.tv_usec = 0;
     int res = settimeofday(&tv, NULL);
+    preferences.putULong("time", mclock);   // save mclock value in NVS
     #if (ENABLE_DBG > 0)
       if (res) {
         DBG("Unable to set the initial time of day");
@@ -115,6 +174,7 @@ void loadmclock(void) {
       }
     #endif
   }
+  preferences.end();
 }
 
 /*
@@ -197,7 +257,7 @@ void gpssetime(uint32_t gpsDate, uint32_t gpsTime, uint32_t gpsAge) {
       tinfo = gmtime(&now);
       char s[51];
       strftime(s, 50, "%A, %B %d %Y %H:%M:%S", tinfo);
-      DBGF("UTC time set from GPS: %s.%.6u (usec = %u, epoch = %u)\n", s, tv.tv_usec, tv.tv_usec, now);
+      DBGF("UTC time set from GPS: %s.%.6u (epoch = %u)\n", s, tv.tv_usec, now);
     #endif
     timesynched = true;
     // now that the time is synchronized, wait longer before performing updates from the GPS data
@@ -269,7 +329,11 @@ void setup() {
   delay(5000);
 
   DBG("Time Server");
-  DBG("");
+  DBG("setup()...");
+
+  #if (HAS_DS3231 > 0)
+    InitExtRtc();
+  #endif
 
   // set RTC with mclock, the last known time or failing that the compile time
   loadmclock();
@@ -315,10 +379,11 @@ void setup() {
 /****************/
 
 // System millis tick count of the last attempt to perform an update of the ESP32 RTC
-// Not keeping track of whether it was a succes or not.
+// Not keeping track of whether it was a success or not.
 unsigned long lastRtcUpdate = 0;
 
 // System millis tick count of the last successful update of the ESP32 RTC from GPS data
+// Used to signify that the time is "approximate"
 unsigned long lastRtcCorrection = 0;
 
 // System millis tick count of the last attept to save the current RTC time to
@@ -351,6 +416,8 @@ void loop(void) {
     gps.encode(c);
   }
 
+  // timePollInterval = SYNC_POLL_TIME (=10000) initially and then
+  // = GPS_POLL_TIME (=360000) after first update
   if (millis() - lastRtcUpdate >= timePollInterval) {
     DBG("Time to update the RTC");
     lastRtcUpdate = millis();
@@ -358,7 +425,7 @@ void loop(void) {
       lastRtcCorrection = millis();
   }
 
-  if (millis() - mclocktimer >= GPS_POLL_TIME) {
+  if (millis() - mclocktimer >= SAVE_CLOCK_TIME) {
     DBG("Time to set mclock and save it to NVS");
     mclocktimer = millis();
     savemclock();
@@ -376,26 +443,25 @@ void loop(void) {
   }
 
   const char* synchedTimeFormat = "%H:%M";
-  const char* notSynchedTimeFormat = "~%H:%M~";
+  const char* notSynchedTimeFormat = "~%H:%M~";  // tildes to show time is "approximate"
 
-  // Update clock on OLED at the 0 second mark,
-  // allowing a 5 second window just in case system busy for a full second
-  //if ((getUTCTime() % 60 <= 5) && (timesynched)){
+  // Update clock on OLED at the 0 second mark, allowing for a few seconds window
+  // in case the system is busy for a full second at the start of the "new" minute
+  #define MINUTE_WINDOW 1
   time_t lastUTCTime;
-  //if ( (time(&lastUTCTime) % 60 <= 5) && (timesynched)) {
-  if  (time(&lastUTCTime) % 60 <= 5) {
+  if  (time(&lastUTCTime) % 60 == 0) {
     struct tm timeinfo;
     // want to show local time, so set the timezone
     setenv("TZ", timeZone, 1);
     localtime_r(&lastUTCTime, &timeinfo);
     strftime(timeBuffer, sizeof(timeBuffer), ((timesynched)  && (millis() - lastRtcCorrection <= 2*GPS_POLL_TIME))
-      ? synchedTimeFormat : notSynchedTimeFormat, &timeinfo);
+      ? synchedTimeFormat       
+      : notSynchedTimeFormat, &timeinfo);
     strftime(dateBuffer, sizeof(dateBuffer), "%F", &timeinfo);
     DBGF("Local time: %s %s (utc %u)\n", dateBuffer, timeBuffer, lastUTCTime);
     #if (HAS_OLED > 0)
     Show();
     #endif
-    delay(6000);  // delay 6 seconds before looking at serial input again
+    delay(MINUTE_WINDOW*1100);  // delay for longer than the 0 second window
   }
-  delay(250);
 }
