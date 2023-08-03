@@ -7,6 +7,8 @@ Runs on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3*
 
 ## Changes
 
+2023-08-03: Adding a branch (`ethernet-test`) to test an ethernet connection (ENC28J60) instead of Wi-Fi.
+
 2023-07-19: Added optional support for a DS3231 battery powered real time clock. The RTC is not a backup time source; it is only used to set the initial time until the correct time is acquired by the GPS receiver.
 
 ## Hardware used
