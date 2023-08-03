@@ -1,7 +1,7 @@
 # GNAT'S Nearly Accurate Time Server
 
 *A tiny and very basic NTP server based on a GPS receiver.  
-Runs on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3*
+Tested with the SeeedStudio XIAO ESP32C3, XIAO ESP32S3 but is should work with any ESP32 board.*
 
 ![icon](img/gnat_128x128.png) 
 
@@ -17,7 +17,9 @@ Runs on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3*
   - GPS receiver supported by TinyGPSPlus such as the ATGM336H 5N-31
   - DS3231 battery backed real time clock (optional)
   - SSD1306 128x64 I2C OLED display (optional)
-  - [Shematic](img/schematic.jpg)
+  - Wi-Fi connection [shematic](img/schematic.jpg)
+  - Ethernet connection [shematic](img/schematic_eth.jpg)
+  
 ## Libraries 
 
   - [TinyGPSPlus](https://github.com/mikalhart/TinyGPSPlus.git) by Mikal Hart at [Arduiniana](http://arduiniana.org). The library reads the $GNRMC NMEA messages from the GPS receiver and makes available the date and time data, among many other bits of information. Licence: unknown.
@@ -41,9 +43,11 @@ by ThingPulse is used to print the date and time on a small OLED screen. Licence
 
 GNATS should not be used as the primary time source. However, it is accurate enough as a backup time source when access to better clocks is lost.
 
-## Note
+## Notes
 
-Edit [secrets.h.template](src/secrets.h.template) and save it as `secrets.h` in the `src` directory before compiling the firmware.
+Edit [secrets.h.template](src/secrets.h.template) and save it as `secrets.h` in the `src` directory before compiling the firmware. Of course this is not necessary if an Ethernet module is used to connect GNAT to the local network.
+
+Replacing Wi-Fi with an Ethernet connection has been tested on an Az-Delivery ESP32 Devkitc-v4 board connected to the GPS module module without the optional DS3231 RTC and OLED display only. While the 10 Mbs wired connection does work, there is no appreciable improvement in the accuracy of GNATS.
 
 ## Licence
 
