@@ -1,7 +1,7 @@
 # GNAT'S Nearly Accurate Time Server
 
 *A tiny and very basic NTP server based on a GPS receiver.  
-Tested with the SeeedStudio XIAO ESP32C3, XIAO ESP32S3 but is should work with any ESP32 board.*
+Tested with the SeeedStudio XIAO ESP32C3 and XIAO ESP32S3 but it should work with any ESP32 board.*
 
 ![icon](img/gnat_128x128.png) 
 
@@ -47,7 +47,7 @@ GNATS should not be used as the primary time source. However, it is accurate eno
 
 Edit [secrets.h.template](src/secrets.h.template) and save it as `secrets.h` in the `src` directory before compiling the firmware. Of course this is not necessary if an Ethernet module is used to connect GNAT to the local network.
 
-Replacing Wi-Fi with an Ethernet connection has been tested on an Az-Delivery ESP32 Devkitc-v4 board connected to the GPS module module without the optional DS3231 RTC and OLED display only. While the 10 Mbs wired connection does work, there is no appreciable improvement in the accuracy of GNATS.
+Replacing Wi-Fi with an Ethernet connection has been tested on an Az-Delivery ESP32 Devkitc-v4 board connected to the GPS module without the optional DS3231 RTC and OLED display only. While the 10 Mb/s wired connection does work, there is no appreciable improvement in the accuracy of GNATS.
 
 ## Licence
 
