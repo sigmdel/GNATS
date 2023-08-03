@@ -12,13 +12,26 @@ on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3
 
 #include <Arduino.h>              // framework for platformIO
 #include <HardwareSerial.h>       // for access to the hardware serial interface
-#include <WiFi.h>                 //
 #include <time.h>                 // access to the ESP RTC
 #include <Preferences.h>          // save mclock to NVS
 #include "smalldebug.h"           // in lib/
 #include "ntp_server.h"           // in lib/
-#include "secrets.h"              // use secrets.h.template to create this file
 #include "TinyGPSPlus.h"          // loaded with platformio directive
+
+//#include <WiFi.h>                 //
+//#include "secrets.h"              // use secrets.h.template to create this file
+#include <ESP32-ENC28J60.h>
+
+#define SPI_HOST       1
+#define SPI_CLOCK_MHZ  8
+
+// ESP32 IO PINS          // MNI ECN28J60 PINS
+#define INT_GPIO       4  // NT
+#define MISO_GPIO     12  // SO
+#define MOSI_GPIO     13  // SI
+#define SCLK_GPIO     14  // SCK
+#define CS_GPIO       15  // CS
+
 
 #if (HAS_DS3231 > 0)
 #include <Wire.h>                 // Arduino I2C library
@@ -33,6 +46,71 @@ on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3
 #undef ENABLE_DBG
 #define ENABLE_DBG 1
 #endif
+
+/*****************************/
+/* * * ENC28J60 Ethernet * * */
+/*****************************/
+
+static bool eth_connected = false;
+
+void EthEvent(WiFiEvent_t event) {
+  String msg;
+  switch (event) {
+    case ARDUINO_EVENT_ETH_START:
+      DBG("ETH Started");
+      //set eth hostname here
+      ETH.setHostname("GNATS_II");
+      break;
+    case ARDUINO_EVENT_ETH_CONNECTED:
+      DBG("ETH Connected");
+      break;
+    case ARDUINO_EVENT_ETH_GOT_IP:
+      msg = "ETH MAC: ";
+      msg += ETH.macAddress();
+      msg += ", IPv4: ";
+      msg += ETH.localIP().toString();
+      if (ETH.fullDuplex()) {
+        msg += ", FULL_DUPLEX";
+      }
+      msg += ", ";
+      msg += ETH.linkSpeed();
+      msg += "Mbps";
+      DBG(msg.c_str());
+      eth_connected = true;
+      break;
+    case ARDUINO_EVENT_ETH_DISCONNECTED:
+      DBG("ETH Disconnected");
+      eth_connected = false;
+      break;
+    case ARDUINO_EVENT_ETH_STOP:
+      DBG("ETH Stopped");
+      eth_connected = false;
+      break;
+    default:
+      break;
+  }
+}
+
+void EthSetup(void) {
+  WiFi.onEvent( EthEvent );
+  ETH.begin( MISO_GPIO, MOSI_GPIO, SCLK_GPIO, CS_GPIO, INT_GPIO, SPI_CLOCK_MHZ, SPI_HOST );
+  ETH.config(IPAddress(192,168,0,23), IPAddress(192,168,0,1), IPAddress(255,255,255,0), IPAddress(9,9,9,9));
+  while( !eth_connected) {
+    DBG("Connecting to network...");
+    delay( 1000 );
+  }
+  String gw("Connected as : ");
+  gw += ETH.localIP().toString();
+  DBG(gw.c_str());
+  gw = "Gateway: ";
+  gw += ETH.gatewayIP().toString();
+  DBG(gw.c_str());
+}
+
+
+/**************************/
+/* * * Time intervals * * */
+/**************************/
 
 // Time between attempts at updating the ESP32 RTC
 // This is the initial value,
@@ -354,6 +432,7 @@ void setup() {
   Show();
   #endif
 
+/* 
   IPAddress staip, gateway, mask;
   staip.fromString(WIFI_STAIP);
   gateway.fromString(WIFI_GATEWAY);
@@ -368,6 +447,8 @@ void setup() {
       delay(50);
   }
   DBGF("Connected to %s\n", WiFi.SSID().c_str());
+*/
+  EthSetup();
   delay(100);
   DBGF("Starting NTP server at %s:%d\n", WiFi.localIP().toString().c_str(), 123);
   NTPServer.begin(123); // 123 is the default port
@@ -455,7 +536,7 @@ void loop(void) {
     setenv("TZ", timeZone, 1);
     localtime_r(&lastUTCTime, &timeinfo);
     strftime(timeBuffer, sizeof(timeBuffer), ((timesynched)  && (millis() - lastRtcCorrection <= 2*GPS_POLL_TIME))
-      ? synchedTimeFormat       
+      ? synchedTimeFormat
       : notSynchedTimeFormat, &timeinfo);
     strftime(dateBuffer, sizeof(dateBuffer), "%F", &timeinfo);
     DBGF("Local time: %s %s (utc %u)\n", dateBuffer, timeBuffer, lastUTCTime);
