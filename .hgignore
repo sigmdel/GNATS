@@ -10,10 +10,7 @@ syntax: glob
 *.bak
 *.~
 secrets.h
-domoticz_data.h
-user_config.h
+netaddr.h
+
 extra/
 
-08_ticker_hdw/hdw_kit/
-09_with_cmd/hdw_kit/
-09_with_cmd/hdw_alt
