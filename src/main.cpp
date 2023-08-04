@@ -16,11 +16,14 @@ on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3
 #include <Preferences.h>          // save mclock to NVS
 #include "smalldebug.h"           // in lib/
 #include "ntp_server.h"           // in lib/
-#include "TinyGPSPlus.h"          // loaded with platformio directive
+#include "TinyGPSPlus.h"          // in .pio/libdeps/
+#include "netaddr.h"              // in src/
 
-//#include <WiFi.h>                 //
-//#include "secrets.h"              // use secrets.h.template to create this file
-#include <ESP32-ENC28J60.h>
+#if (USE_WIFI > 0)
+#include <WiFi.h>
+#include "secrets.h"              // use secrets.h.template to create this file in src/
+#else
+#include <ESP32-ENC28J60.h>       // hardware driver for Ethernet module in .pio/libdeps/
 
 #define SPI_HOST       1
 #define SPI_CLOCK_MHZ  8
@@ -31,21 +34,6 @@ on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3
 #define MOSI_GPIO     13  // SI
 #define SCLK_GPIO     14  // SCK
 #define CS_GPIO       15  // CS
-
-
-#if (HAS_DS3231 > 0)
-#include <Wire.h>                 // Arduino I2C library
-#include <RtcDS3231.h>            // in .pio/libdeps
-#endif
-
-#if (HAS_OLED > 0)
-#include "SSD1306Wire.h"          // hardware driver for SSD1306 OLED display in .pio/libdeps
-#endif
-
-#if (SHOW_NMEA>0) && (!ENABLE_DGB)
-#undef ENABLE_DBG
-#define ENABLE_DBG 1
-#endif
 
 /*****************************/
 /* * * ENC28J60 Ethernet * * */
@@ -92,12 +80,17 @@ void EthEvent(WiFiEvent_t event) {
 }
 
 void EthSetup(void) {
-  WiFi.onEvent( EthEvent );
+  IPAddress staip, gateway, mask;
+  staip.fromString(LAN_STAIP);
+  gateway.fromString(LAN_GATEWAY);
+  mask.fromString(LAN_MASK);
+
+  WiFi.onEvent(EthEvent);
   ETH.begin( MISO_GPIO, MOSI_GPIO, SCLK_GPIO, CS_GPIO, INT_GPIO, SPI_CLOCK_MHZ, SPI_HOST );
-  ETH.config(IPAddress(192,168,0,23), IPAddress(192,168,0,1), IPAddress(255,255,255,0), IPAddress(9,9,9,9));
+  ETH.config(staip, gateway, mask);
   while( !eth_connected) {
     DBG("Connecting to network...");
-    delay( 1000 );
+    delay(1000);
   }
   String gw("Connected as : ");
   gw += ETH.localIP().toString();
@@ -106,6 +99,22 @@ void EthSetup(void) {
   gw += ETH.gatewayIP().toString();
   DBG(gw.c_str());
 }
+
+#endif // USE_WIFI <= 0
+
+#if (HAS_DS3231 > 0)
+#include <Wire.h>                 // Arduino I2C library
+#include <RtcDS3231.h>            // hardware driver for optional DS3231 RTC in .pio/libdeps/
+#endif
+
+#if (HAS_OLED > 0)
+#include "SSD1306Wire.h"          // hardware driver for optional SSD1306 OLED display in .pio/libdeps/
+#endif
+
+#if (SHOW_NMEA>0) && (!ENABLE_DGB)
+#undef ENABLE_DBG
+#define ENABLE_DBG 1
+#endif
 
 
 /**************************/
@@ -432,11 +441,13 @@ void setup() {
   Show();
   #endif
 
-/* 
   IPAddress staip, gateway, mask;
-  staip.fromString(WIFI_STAIP);
-  gateway.fromString(WIFI_GATEWAY);
-  mask.fromString(WIFI_MASK);
+  staip.fromString(LAN_STAIP);
+  gateway.fromString(LAN_GATEWAY);
+  mask.fromString(LAN_MASK);
+
+  // connect to local network
+  #if (USE_WIFI > 0)
   DBGF("Connecting to %s\n", WIFI_SSID);
   DBGF("  static IP: %s\n", staip.toString().c_str());
   DBGF("  gateway:   %s\n", gateway.toString().c_str());
@@ -447,8 +458,10 @@ void setup() {
       delay(50);
   }
   DBGF("Connected to %s\n", WiFi.SSID().c_str());
-*/
+  #else
   EthSetup();
+  #endif
+
   delay(100);
   DBGF("Starting NTP server at %s:%d\n", WiFi.localIP().toString().c_str(), 123);
   NTPServer.begin(123); // 123 is the default port
