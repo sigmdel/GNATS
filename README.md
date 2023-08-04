@@ -22,9 +22,11 @@ Tested with the SeeedStudio XIAO ESP32C3 and XIAO ESP32S3 but it should work wit
   
 ## Libraries 
 
-  - [TinyGPSPlus](https://github.com/mikalhart/TinyGPSPlus.git) by Mikal Hart at [Arduiniana](http://arduiniana.org). The library reads the $GNRMC NMEA messages from the GPS receiver and makes available the date and time data, among many other bits of information. Licence: unknown.
+  - [TinyGPSPlus](https://github.com/mikalhart/TinyGPSPlus) by Mikal Hart at [Arduiniana](http://arduiniana.org). The library reads the $GNRMC NMEA messages from the GPS receiver and makes available the date and time data, among many other bits of information. Licence: unknown.
 
-  - [ntp_server](lib/ntp_server/ntp_server.h) is a modified version of the NTP server (`ntp_server.h` and `ntp_server.cpp`) in the ElektorLabs [180662 mini NTP with ESP32](https://github.com/ElektorLabs/180662-mini-NTP-ESP32). There is a project description in the ElektorMag [mini-NTP server with GPS](https://www.elektormagazine.com/labs/mini-ntp-server-with-gps). Licence: GPLv3 or later at user choice.
+  - [ntp_server](lib/ntp_server/ntp_server.h) is a modified version of the NTP server (`ntp_server.h` and `ntp_server.cpp`) in the ElektorLabs [180662 mini NTP with ESP32](https://github.com/ElektorLabs/180662-mini-NTP-ESP32). There is a project description in the ElektorMag [mini-NTP server with GPS](https://www.elektormagazine.com/labs/mini-ntp-server-with-gps). Licence: GPLv3 or later at user choice.  
+
+  - [ESP32-ENC28J60](https://github.com/tobozo/ESP32-ENC28J60) by tobozo supports ENC28J60 Ethernet modules with the `ENC28J60Class` class which is compatible with the `ETHClass` of the *official* [esp32-arduino Ethernet Library](https://github.com/espressif/arduino-esp32/blob/master/libraries/Ethernet/src/ETH.h). License: MIT.
 
   - [OLED SSD1306 (ESP8266/ESP32/Mbed-OS)](https://github.com/ThingPulse/esp8266-oled-ssd1306)
 by ThingPulse is used to print the date and time on a small OLED screen. Licence: MIT.
@@ -39,15 +41,21 @@ by ThingPulse is used to print the date and time on a small OLED screen. Licence
 
 [Using a Local Network Time Server](https://sigmdel.ca/michel/program/esp32/arduino/local_timeserver_en.html)
 
+## Before compiling
+
+Edit the project configuration file `platfomio.ini` to select the ESP32 development board in the `[platformio]` section. Then in the corresponding `[env:xxxxxxx]`  section set the `HAS_OLED`, `HAS_DS3231` and `USE_WIFI` directives to `0` (= no) or `1` (= yes) as required. Finally, adjust the time intervals, the debug options and the `LOCAL_TIME_ZONE` macro in the `[extra]` section.
+
+Edit GNAT'S network configuration (static IP address, gateway and subnet mask) in [netaddr.h.template](src/netaddr.h.template) and save it as `netaddr.h` in the `src` directory.
+
+If the board connects to the local area network using Wi-Fi (`USE_WIFI=1`) edit [secrets.h.template](src/secrets.h.template) and save it as `secrets.h` in the `src` directory.
+
 ## Warning
 
 GNATS should not be used as the primary time source. However, it is accurate enough as a backup time source when access to better clocks is lost.
 
-## Notes
+Replacing Wi-Fi with an Ethernet connection has been tested on an Az-Delivery ESP32 Devkitc-v4 board. While the 10 Mb/s wired connection does work, there is no appreciable improvement in the accuracy of GNATS. 
 
-Edit [secrets.h.template](src/secrets.h.template) and save it as `secrets.h` in the `src` directory before compiling the firmware. Of course this is not necessary if an Ethernet module is used to connect GNAT to the local network.
-
-Replacing Wi-Fi with an Ethernet connection has been tested on an Az-Delivery ESP32 Devkitc-v4 board connected to the GPS module without the optional DS3231 RTC and OLED display only. While the 10 Mb/s wired connection does work, there is no appreciable improvement in the accuracy of GNATS.
+So far no test has been done with the optional DS3231 RTC and OLED display along side the Ethernet module.
 
 ## Licence
 
