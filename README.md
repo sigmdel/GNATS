@@ -7,6 +7,8 @@ Runs on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3*
 
 ## Changes
 
+2025-10-30: Added a [-?|-h|--help] command line option to the NTP client utilities in `utils/`.
+
 2023-08-03: Added the `ethernet-test` branch in which an ENC28J60 based Ethernet module is used to connect to the local area network instead of Wi-Fi.
 
 2023-07-19: Added optional support for a DS3231 battery powered real time clock. The RTC is not a backup time source; it is only used to set the initial time until the correct time is acquired by the GPS receiver.
