@@ -1,11 +1,13 @@
 # GNAT'S Nearly Accurate Time Server
 
 *A tiny and very basic NTP server based on a GPS receiver.  
-Runs on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3*
+Runs on most ESP32 SoCs connected to a TinyGPSPlus supported GPS receiver.*
 
 ![icon](img/gnat_128x128.png) 
 
 ## Changes
+
+2026-05-10: Corrected the hardware serial configuration and added board definitions in `platformio.ini`. Cleaned up the code of `main.cpp`.
 
 2025-10-30: Added a [-?|-h|--help] command line option to the NTP client utilities in `utils/`.
 
@@ -15,11 +17,12 @@ Runs on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3*
 
 ## Hardware used
 
-  - ESP32 development board such as XIAO ESP32C3 or XIAO ESP32S3
+  - ESP32 development board with Wi-Fi such as XIAO ESP32S3, ESP32C3 Super Mini, Lolin32_lite.
   - GPS receiver supported by TinyGPSPlus such as the ATGM336H 5N-31
   - DS3231 battery backed real time clock (optional)
   - SSD1306 128x64 I2C OLED display (optional)
   - [Shematic](img/schematic.jpg)
+
 ## Libraries 
 
   - [TinyGPSPlus](https://github.com/mikalhart/TinyGPSPlus.git) by Mikal Hart at [Arduiniana](http://arduiniana.org). The library reads the $GNRMC NMEA messages from the GPS receiver and makes available the date and time data, among many other bits of information. Licence: unknown.
@@ -31,9 +34,9 @@ by ThingPulse is used to print the date and time on a small OLED screen. Licence
 
   - [Rtc](https://github.com/Makuna/Rtc) by Michael Miller (Makuna) is used to read a battery-powered DS3231 real time clock which will provide the initial time to set the ESP real time clock until GPS time is available. Licence: LGPLv3
 
-  - [smalldebug](lib/smalldebug.h) just defines two macros: DBG(...) and DBG(...). These are used throughout the code instead of Serial.println(...) and Serial.printf(...). The advantage of using these macros is that all the print statements will be stripped from the compiled firmware when the ENABLE_DBG macro is set to 0. Licence: None.
+  - [smalldebug](lib/smalldebug.h) just defines two macros: DBG(...) and DBG(...). These are used throughout the code instead of Serial.println(...) and Serial.printf(...). The advantage of using these macros is that all the print statements will be stripped from the compiled firmware when the ENABLE_DBG directive is set to 0 in `platformio.ini`. Licence: None.
 
-## Further documentation
+## Further documentation 
 
 [GNATS, a Tiny Basic ESP32 GPS Based NTP Server](https://sigmdel.ca/michel/program/esp32/arduino/esp32_gps_time_server_en.html)
 
@@ -41,11 +44,24 @@ by ThingPulse is used to print the date and time on a small OLED screen. Licence
 
 ## Warning
 
-GNATS should not be used as the primary time source. However, it is accurate enough as a backup time source when access to better clocks is lost.
+GNATS should not be used as the primary time source. Nevertheless, it may be accurate enough as a backup time source when access to better clocks is lost.
 
-## Note
+## Configuration before compiling
 
-Edit [secrets.h.template](src/secrets.h.template) and save it as `secrets.h` in the `src` directory before compiling the firmware.
+- Edit [secrets.h.template](src/secrets.h.template) and save it as `secrets.h` in the `src` directory.
+
+- Edit `platformio.ini` :
+
+  - Choose the appropriate board in the `[platformio]` section
+  - Define the correct `LOCAL_TIME_ZONE` string for the geographical location of the board
+  - Adjust the build flags for the selected dev board. 
+  
+    -  Specify the hardware serial peripheral that will be used to read from the TX output of the GPS module. It may be necessary to specify the RX pin number (see the `lolin32_lite` environment). 
+    - For dev boards with ESP32 SoC without support for USB CDC (USB ACM), specify the `SERIAL_BAUD` for the USB-serial adapter (see the `lolin32_lite` environment).
+    - If a supported I2C OLED display is connected to the board set the `HAS_OLED` directive to `1` otherwise to `0`. 
+    - If a DS3231 Real time clock module is connected to the board set the `HAS_DS3231` to `1` otherwise to `0`.
+    - It may be helpful to specify the Wi-Fi TX power of some ESP32C3 Super mini board (see the `nologo_esp32c3_super_mini` environment). See the `wifi_power_t` definition
+      in `...framework-arduinoespressif32/libraries/WiFi/src/WiFiGeneric.h` for possible values of `TX_POWER`.
 
 ## Licence
 
