@@ -21,7 +21,8 @@ Runs on most ESP32 SoCs connected to a TinyGPSPlus supported GPS receiver.*
   - GPS receiver supported by TinyGPSPlus such as the ATGM336H 5N-31
   - DS3231 battery backed real time clock (optional)
   - SSD1306 128x64 I2C OLED display (optional)
-  - [Schematic](img/schematic.jpg)
+  - [Schematic - XIAO ESP32-xx](img/schematic.jpg)
+  - [Schematic - ESP32-C3 Super Mini](img/schematic2.jpg)
 
 ## Libraries 
 
