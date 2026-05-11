@@ -89,7 +89,7 @@ bool NetworkConnect(void) {
   }
   int txpower = WiFi.getTxPower();
   #ifdef ENABLE_DBG
-  //if (txpower != TX_POWER) 
+  if (txpower != TX_POWER) 
     DBGF("Unable to set Wi-Fi TX power to: %d = %.1f dBm\n", TX_POWER, (float)(TX_POWER)*0.25);
   DBGF("Wi-Fi TX power set to: %d = %.1f dBm\n", txpower, txpower*0.25);
   #endif  
