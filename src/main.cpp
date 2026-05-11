@@ -10,43 +10,115 @@ on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3
 
 */
 
-#include <Arduino.h>              // framework for platformIO
-#include <HardwareSerial.h>       // for access to the hardware serial interface
-#include <WiFi.h>                 //
-#include <time.h>                 // access to the ESP RTC
-#include <Preferences.h>          // save mclock to NVS
-#include "smalldebug.h"           // in lib/
-#include "ntp_server.h"           // in lib/
-#include "secrets.h"              // use secrets.h.template to create this file
-#include "TinyGPSPlus.h"          // loaded with platformio directive
+#include <Arduino.h>          // framework for platformIO
+#include <HardwareSerial.h>   // for access to the hardware serial interface
+#include <time.h>             // access to the ESP RTC
+#include <Preferences.h>      // to save mclock to NVS
+#include "smalldebug.h"       // in lib/
+#include "ntp_server.h"       // in lib/
+#include "TinyGPSPlus.h"      // loaded with platformio directive
 
-#if (HAS_DS3231 > 0)
-#include <Wire.h>                 // Arduino I2C library
-#include <RtcDS3231.h>            // in .pio/libdeps
-#endif
-
-#if (HAS_OLED > 0)
-#include "SSD1306Wire.h"          // hardware driver for SSD1306 OLED display in .pio/libdeps
-#endif
-
+// sanity check, dumping NMEA messages requires ENABLE_DBG = 1
 #if (SHOW_NMEA>0) && (!ENABLE_DGB)
 #undef ENABLE_DBG
 #define ENABLE_DBG 1
 #endif
 
-// Time between attempts at updating the ESP32 RTC
-// This is the initial value,
+/******************************************/ 
+/* * * Serial Interface to GPS Module * * */
+/******************************************/
 
-#if defined(SYNC_POLL_TIME)
-unsigned long timePollInterval = SYNC_POLL_TIME;
+// Serial interface used to talk to the GPS
+#if defined(HDW_SERIAL_INTF)
+  // Explicit serial peripheral
+#define hdwSerial HDW_SERIAL_INTF
 #else
-unsigned long timePollInterval = 10000;  // 10 seconds, for Arduino
+  // Guess which serial peripheral 
+#if !defined(ARDUINO_USB_CDC_ON_BOOT)
+#define ARDUINO_USB_CDC_ON_BOOT 0
+#endif
+#if (ARDUINO_USB_CDC_ON_BOOT > 0)
+#define hdwSerial Serial0
+#else
+#define hdwSerial Serial1
+#endif
 #endif
 
-// This is the delay after the first successful update
-#if !defined(GPS_POLL_TIME)
-#define GPS_POLL_TIME = 3600000;        // 1 hours, for Arduino
+#if defined(UART_RX_PIN)
+  // Explicit UART RX pin to use
+static const int RXPin = UART_RX_PIN;
+#else
+  // Don't change the pin assigned to the serial peripheral
+static const int RXPin = -1;    
 #endif
+
+// default baud of GPS module
+#if defined(GPS_BAUD)
+static const unsigned long GPSBaud = GPS_BAUD;
+#else
+static const unsigned long GPSBaud = 9600;
+#endif
+
+
+/******************************/
+/* * * Network Connection * * */
+/******************************/
+
+#include <WiFi.h>
+#include "secrets.h"              // use secrets.h.template to create this file in src/
+
+bool NetworkConnect(void) {
+  IPAddress staip, gateway, mask;
+  staip.fromString(WIFI_STAIP);
+  gateway.fromString(WIFI_GATEWAY);
+  mask.fromString(WIFI_MASK);
+  DBGF("Connecting to %s\n", WIFI_SSID);
+  DBGF("  static IP: %s\n", staip.toString().c_str());
+  DBGF("  gateway:   %s\n", gateway.toString().c_str());
+  DBGF("  mask:      %s\n", mask.toString().c_str());
+  
+  
+  WiFi.config(staip, gateway, mask);
+  WiFi.begin(WIFI_SSID, WIFI_PSWD);
+
+   // /home/michel/.platformio/packages/framework-arduinoespressif32/libraries/WiFi/src/WiFiGeneric.h
+  #ifdef TX_POWER 
+  if (WiFi.getTxPower() != TX_POWER) {
+    WiFi.setTxPower(TX_POWER);
+    delay(25);
+  }
+  int txpower = WiFi.getTxPower();
+  #ifdef ENABLE_DBG
+  //if (txpower != TX_POWER) 
+    DBGF("Unable to set Wi-Fi TX power to: %d = %.1f dBm\n", TX_POWER, (float)(TX_POWER)*0.25);
+  DBGF("Wi-Fi TX power set to: %d = %.1f dBm\n", txpower, txpower*0.25);
+  #endif  
+  #endif
+ 
+  static bool wifi_connected = false;  
+  unsigned long connect_time = millis();
+  while (!WiFi.isConnected()) {
+    delay(500);
+    #if (ENABLE_DBG > 0)
+    Serial.print(".");
+    #endif
+    if (millis() - connect_time > CONNECT_TIMEOUT) 
+      break;
+  }
+  #if (ENABLE_DBG > 0)
+  Serial.println();
+  #endif
+  
+  if (WiFi.isConnected()) {
+    DBGF("Connected to %s\n", WiFi.SSID().c_str());
+    DBGF("Starting NTP server at %s:%d\n", WiFi.localIP().toString().c_str(), 123);
+  } else {
+    DBGF("Unable to connect to %s\n", WIFI_SSID);
+    DBG("Unable to start NTP server");
+  }
+
+  return WiFi.isConnected();
+}
 
 /**********************/
 /* * * NTP server * * */
@@ -54,12 +126,69 @@ unsigned long timePollInterval = 10000;  // 10 seconds, for Arduino
 
 NTP_Server NTPServer;
 
+/*********************************/
+/* * * Optional OLED display * * */
+/*********************************/
 
-/*********************************/
-/* * * DS3231 - External RTC * * */
-/*********************************/
+
+// Used in some DBG/DBGF statements and for displaying time & date
+char timeBuffer[9];      // time format:  14:50 (synched) ~14:60~ (not synched or old)
+char dateBuffer[12];     // date format: 2023:11:31
+
+#if (HAS_OLED > 0)
+
+#include "SSD1306Wire.h" // 'ESP8266 and ESP32 OLED driver for SSD1306 displays' in .pio/libdeps
+
+//I2C SDA and SCL pins defined in variant pins_arduino.h
+SSD1306Wire display(0x3c, SDA, SCL, GEOMETRY_128_64);
+
+// move the time and date off centre by small amounts each
+// time they are drawn to avoid "burn-in" damage
+int jitter[3] = {-1, 0, 1};
+int xjit = 0;
+int yjit = 1;
+
+void Show(void) {
+  display.clear();
+  int x = display.width()/2 + 2 + jitter[xjit];
+  int y = 2 + jitter[yjit];
+  display.drawString(x, y, timeBuffer);
+  display.drawString(x, display.height()/2 + y, dateBuffer);
+  xjit = (xjit + 1) % 3;
+  yjit = (yjit + 1) % 3;
+  display.display();
+}
+
+void ShowNoGPS(bool notfound) {
+  display.clear();
+  int x = display.width()/2;
+  display.drawString(x, 2, (notfound) ? "NO GPS" : "GPS");
+  display.drawString(x, display.height()/2 + 2, (notfound) ? "FOUND" : "LOST");
+  display.display();
+}
+
+void InitDisplay(void) {
+  DBG("Initializing OLED display");
+  strlcpy(timeBuffer, "--:--", sizeof(timeBuffer));
+  strlcpy(dateBuffer, "----.--.--.", sizeof(dateBuffer));
+  display.init();
+  display.flipScreenVertically();
+  display.setTextAlignment(TEXT_ALIGN_CENTER);
+  display.setFont(ArialMT_Plain_24);
+  display.displayOn();
+  Show();
+}  
+#endif // HAS_OLED > 0
+
+
+/******************************************/
+/* * * Optional DS3231 - External RTC * * */
+/******************************************/
 
 #if (HAS_DS3231 > 0)
+
+#include <Wire.h>             // Arduino I2C library
+#include <RtcDS3231.h>        // in .pio/libdeps
 
 RtcDS3231<TwoWire> ExtRtc(Wire);
 
@@ -84,7 +213,8 @@ uint32_t extRtcTime(void) {
   return 0; // error!
 }
 
-#endif
+#endif // HAS_DS3231 > 0
+
 
 /**********************/
 /* * * Saved time * * */
@@ -115,7 +245,7 @@ void savemclock(void) {
     RtcDateTime drtc;
     drtc.InitWithUnix32Time(mclock);
     ExtRtc.SetDateTime(drtc);
-    DBGF("Saving mclock = %u to hardware external clock\n", mclock);
+    DBGF("Saving mclock = %u to external hardware clock\n", mclock);
   #endif
   preferences.begin("mclock", false);
   preferences.putULong("time", mclock);   // save mclock value in NVS
@@ -191,29 +321,14 @@ void clearmclock(void) {
 /***************/
 
 TinyGPSPlus gps;
-static const uint32_t GPSBaud = 9600;
 
 // Set to true as soon as the ESP RTC is updated with time from the GPS
 bool timesynched = false;
 
-// Serial interface used to talk to the GPS
-#if defined(HDW_SERIAL_INTF)
-#define hdwSerial HDW_SERIAL_INTF
-#else
-#define hdwSerial Serial2
-#endif
-
-#if defined(UART_RX_PIN)
-static const int RXPin = UART_RX_PIN;
-#else
-static const int RXPin = -1;
-#endif
-
-#if defined(UART_TX_PIN)
-static const int TXPin = UART_TX_PIN;
-#else
-static const int TXPin = -1;
-#endif
+// Time between attempts at updating the ESP32 RTC
+unsigned long timePollInterval = SYNC_POLL_TIME;
+// SYNC_POLL_TIME is the initial value that will  be changed 
+// to GPS_POLL_TIME after the first successful update from the GPS
 
 // Updates the ESP32 RTC with the given GPS data which is UTC time
 // to the nearest second and use gpsAge to calculate fractions of a second
@@ -277,37 +392,6 @@ bool updateRTC(void) {
   return false;
 }
 
-/************************/
-/* * * OLED display * * */
-/************************/
-
-char timeBuffer[9];     // time format:  14:50 (synched) ~14:60~ (not synched or old)
-char dateBuffer[12];    // date format: 2023:11:31
-
-#if (HAS_OLED > 0)
-
-//#define SDA  6   // defined in  ~/.platformio/packages/framework-arduinoespressif32/variants/XIAO_ESP32C3/pins_arduino.h
-//#define SCL  7
-
-SSD1306Wire display(0x3c, SDA, SCL, GEOMETRY_128_64);
-
-int jitter[3] = {-1, 0, 1};
-int xjit = 0;
-int yjit = 1;
-
-
-void Show(void) {
-  display.clear();
-  display.drawString(64+jitter[xjit], 2+jitter[yjit], timeBuffer);
-  xjit = xjit % 3;
-  yjit = yjit % 3;
-  display.drawString(64+jitter[xjit], 32+jitter[yjit], dateBuffer);
-  display.display();
-  xjit = xjit % 3;
-  yjit = yjit % 3;
-}
-
-#endif // HAS_OLED
 
 /*****************/
 /* * * setup * * */
@@ -323,10 +407,11 @@ void setup() {
   #ifdef SERIAL_BAUD
   Serial.begin(SERIAL_BAUD);
   #else
-  Serial.begin();  // Serial over USB CDC, i.e. ESP32C3, ESP32S2, ESP32S3
+  Serial.begin();  // Serial over USB CDC, i.e. ESP32C3, ESP32S2, ESP32S3...
+  delay(3000);
   #endif
 
-  delay(5000);
+  delay(5000);     // time to start the serial monitor
 
   DBG("Time Server");
   DBG("setup()...");
@@ -335,42 +420,24 @@ void setup() {
     InitExtRtc();
   #endif
 
-  // set RTC with mclock, the last known time or failing that the compile time
-  loadmclock();
+  #if (HAS_OLED > 0)
+    InitDisplay();
+  #endif  
 
   DBG("Initializing serial connection to the GPS");
-  hdwSerial.begin(GPSBaud, SERIAL_8N1, RXPin, TXPin);
+  hdwSerial.begin(GPSBaud, SERIAL_8N1, RXPin);
   delay(1000);
 
-  #if (HAS_OLED > 0)
-  DBG("Initializing OLED display");
-  strlcpy(timeBuffer, "--:--", sizeof(timeBuffer));
-  strlcpy(dateBuffer, "----.--.--.", sizeof(dateBuffer));
-  display.init();
-  display.flipScreenVertically();
-  display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.setFont(ArialMT_Plain_24);
-  display.displayOn();
-  Show();
-  #endif
-
-  IPAddress staip, gateway, mask;
-  staip.fromString(WIFI_STAIP);
-  gateway.fromString(WIFI_GATEWAY);
-  mask.fromString(WIFI_MASK);
-  DBGF("Connecting to %s\n", WIFI_SSID);
-  DBGF("  static IP: %s\n", staip.toString().c_str());
-  DBGF("  gateway:   %s\n", gateway.toString().c_str());
-  DBGF("  mask:      %s\n", mask.toString().c_str());
-  WiFi.config(staip, gateway, mask);
-  WiFi.begin(WIFI_SSID, WIFI_PSWD);
-  while (WiFi.status() != WL_CONNECTED) {
-      delay(50);
+   // set RTC with mclock, the last known time or failing that the compile time
+  loadmclock();
+ 
+  // Connect to the local network and start the NTP server
+  // if possible  
+  if (NetworkConnect()) {  
+    if (!NTPServer.begin(123)) {
+      DBG("Unable to start NTP server");
+    }  
   }
-  DBGF("Connected to %s\n", WiFi.SSID().c_str());
-  delay(100);
-  DBGF("Starting NTP server at %s:%d\n", WiFi.localIP().toString().c_str(), 123);
-  NTPServer.begin(123); // 123 is the default port
   DBG("Completed setup(), starting loop()");
 }
 
@@ -391,7 +458,7 @@ unsigned long lastRtcCorrection = 0;
 // updated by the GPS or not.
 unsigned long mclocktimer = 0;
 
-// System millis tock count of the last time the NO GPS FOUND message was shown
+// System millis tick count of the last time the NO GPS FOUND message was shown
 unsigned long lastWarning = 0;
 
 #if (SHOW_NMEA > 0)
@@ -431,14 +498,14 @@ void loop(void) {
     savemclock();
   }
 
-  if ((millis() - lastWarning > GPS_WARNING_TIME) && (gps.charsProcessed() < 10))  {
+  if ((gps.date.age() > GPS_WARNING_TIME) && (millis() - lastWarning > GPS_WARNING_TIME)) {
     lastWarning = millis();
-    DBG("No GPS detected");
+    bool notfound = (timePollInterval < GPS_POLL_TIME);
+    DBG((notfound) ? "No GPS found" : "GPS lost") 
     #if (HAS_OLED > 0)
-    display.clear();
-    display.drawString(64, 2, "NO GPS");
-    display.drawString(64, 32, "FOUND");
-    display.display();
+      ShowNoGPS(notfound);
+      delay(30000); // 30 second
+      Show();
     #endif
   }
 
@@ -455,7 +522,7 @@ void loop(void) {
     setenv("TZ", timeZone, 1);
     localtime_r(&lastUTCTime, &timeinfo);
     strftime(timeBuffer, sizeof(timeBuffer), ((timesynched)  && (millis() - lastRtcCorrection <= 2*GPS_POLL_TIME))
-      ? synchedTimeFormat       
+      ? synchedTimeFormat
       : notSynchedTimeFormat, &timeinfo);
     strftime(dateBuffer, sizeof(dateBuffer), "%F", &timeinfo);
     DBGF("Local time: %s %s (utc %u)\n", dateBuffer, timeBuffer, lastUTCTime);
