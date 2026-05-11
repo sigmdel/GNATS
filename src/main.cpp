@@ -5,8 +5,8 @@
 | |_| | |\  |/ ___ \| |  ___) |
  \____|_| \_/_/   \_\_| |____/  GNATS' Not Accurate Time Server
 
-A tiny and very basic NTP server based on a GPS receiver and running
-on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3
+A tiny and very basic NTP server based on a GPS receiver 
+which runs on most ESP32 based boards
 
 */
 
@@ -18,8 +18,9 @@ on the SeeedStudio XIAO ESP32C3 or XIAO ESP32S3
 #include "ntp_server.h"       // in lib/
 #include "TinyGPSPlus.h"      // loaded with platformio directive
 
+
 // sanity check, dumping NMEA messages requires ENABLE_DBG = 1
-#if (SHOW_NMEA>0) && (!ENABLE_DGB)
+#if (SHOW_NMEA>0) 
 #undef ENABLE_DBG
 #define ENABLE_DBG 1
 #endif
@@ -77,18 +78,16 @@ bool NetworkConnect(void) {
   DBGF("  gateway:   %s\n", gateway.toString().c_str());
   DBGF("  mask:      %s\n", mask.toString().c_str());
   
-  
   WiFi.config(staip, gateway, mask);
   WiFi.begin(WIFI_SSID, WIFI_PSWD);
 
-   // /home/michel/.platformio/packages/framework-arduinoespressif32/libraries/WiFi/src/WiFiGeneric.h
   #ifdef TX_POWER 
   if (WiFi.getTxPower() != TX_POWER) {
     WiFi.setTxPower(TX_POWER);
     delay(25);
   }
   int txpower = WiFi.getTxPower();
-  #ifdef ENABLE_DBG
+  #if (ENABLE_DBG > 0)
   if (txpower != TX_POWER) 
     DBGF("Unable to set Wi-Fi TX power to: %d = %.1f dBm\n", TX_POWER, (float)(TX_POWER)*0.25);
   DBGF("Wi-Fi TX power set to: %d = %.1f dBm\n", txpower, txpower*0.25);
@@ -129,7 +128,6 @@ NTP_Server NTPServer;
 /*********************************/
 /* * * Optional OLED display * * */
 /*********************************/
-
 
 // Used in some DBG/DBGF statements and for displaying time & date
 char timeBuffer[9];      // time format:  14:50 (synched) ~14:60~ (not synched or old)
@@ -203,6 +201,10 @@ void InitExtRtc(void) {
     // Default configuration - disable everything
     ExtRtc.Enable32kHzPin(false);
     ExtRtc.SetSquareWavePin(DS3231SquareWavePin_ModeNone);
+    #if (ENABLE_DBG > 0)
+    if (ExtRtc.LastError()) 
+      DBG("Error initializing external real time clock");
+    #endif
 }
 
 uint32_t extRtcTime(void) {
@@ -212,6 +214,19 @@ uint32_t extRtcTime(void) {
   }
   return 0; // error!
 }
+
+void setExtRtcTime(time_t now) {
+  RtcDateTime drtc;
+  drtc.InitWithUnix32Time(now);
+  ExtRtc.SetDateTime(drtc);
+  #if (ENABLE_DBG > 0)
+  if (ExtRtc.LastError()) {
+    DBGF("Error trying to save time = %u to external hardware clock", now);
+  } else {
+    DBGF("Saving time = %u to external hardware clock\n", now);
+  }
+  #endif
+}    
 
 #endif // HAS_DS3231 > 0
 
@@ -236,75 +251,29 @@ void savemclock(void) {
   time(&newvalid); // read current time from the ESP RTC
   if (newvalid < mclock) {
     // keep time moving along
-    DBGF("Time moving backwards!");
+    DBG("Time moving backwards! Time not saved.");
     return;
   }
   mclock = newvalid;
+  
   #if (HAS_DS3231 > 0)
     // update hardware real time clock with GPS time
     RtcDateTime drtc;
     drtc.InitWithUnix32Time(mclock);
     ExtRtc.SetDateTime(drtc);
-    DBGF("Saving mclock = %u to external hardware clock\n", mclock);
+    #if (ENABLE_DBG > 0)
+    if (ExtRtc.LastError()) {
+      DBG("Error trying to save mclock to external hardware clock");
+    } else {
+      DBGF("Saving mclock = %u to external hardware clock\n", mclock);
+    }  
+    #endif
   #endif
+
   preferences.begin("mclock", false);
   preferences.putULong("time", mclock);   // save mclock value in NVS
   preferences.end();
   DBGF("Saving mclock = %u to NVS\n", mclock);
-}
-
-// Set the current RTC time from the last saved mclock value
-// or from the firmware compilation time whichever is ahead.
-// Call only once on reboot
-void loadmclock(void) {
-  preferences.begin("mclock", false);
-  mclock = preferences.getULong("time", 0);  // default 0 if not already defined
-  // In the arduino IDE, use https://github.com/sigmdel/mdBuildTime
-  //
-  // setenv("TZ", timeZone, 1);
-  // time_t compileTime = unixbuildtime();
-  // if (mclock < compileTime) {
-  //  mclock = compileTime;
-  //  ...
-
-  #if (ENABLE_DBG > 0)
-  if (mclock) {
-    DBG("Using time saved to NVS");
-  }
-  #endif
-
-  #if (HAS_DS3231 > 0)
-  uint32_t xrtcnow = extRtcTime();
-  if (mclock < xrtcnow) {
-    mclock = xrtcnow;
-    DBG("Using external RTC time as last known time");
-  }
-  #endif
-
-  if (mclock < COMPILE_TIME) {
-    mclock = COMPILE_TIME; // Unix timestamp macro set in platformio.ini
-    DBG("Using compile time as last known time");
-  }
-
-  if (mclock) {
-    timeval tv;
-    tv.tv_sec = mclock ;
-    tv.tv_usec = 0;
-    int res = settimeofday(&tv, NULL);
-    preferences.putULong("time", mclock);   // save mclock value in NVS
-    #if (ENABLE_DBG > 0)
-      if (res) {
-        DBG("Unable to set the initial time of day");
-      } else {
-        struct tm* tminfo;
-        tminfo = gmtime(&tv.tv_sec);
-        char s[51];
-        strftime(s, 50, "%A, %B %d %Y %H:%M:%S", tminfo);
-        DBGF("UTC time set from last known time: %s\n", s);
-      }
-    #endif
-  }
-  preferences.end();
 }
 
 /*
@@ -315,6 +284,81 @@ void clearmclock(void) {
   preferences.end();
 }
 */
+
+
+// Set the current system time (ESP32 RTC controller) from whichever 
+// source of time is ahead. The possible sources are:
+//  - the firmware compilation time
+//  - the last saved time in NVS
+//  - the external real time clock (if available).
+// This function is call only once on reboot.
+void loadmclock(void) {
+  uint32_t comptime = COMPILE_TIME; // Unix timestamp macro set in platformio.ini
+  DBGF("Compile time: %d\n", comptime);
+
+  preferences.begin("mclock", false);
+  uint32_t mvstime = preferences.getULong("time", 0);  // default 0 if not already defined
+  DBGF("Time saved in NVS: %d\n", mvstime);
+  preferences.end();
+
+  #if (HAS_DS3231 > 0)
+  uint32_t xrtcnow = extRtcTime();
+  DBGF("Time from external real time clock: %d\n", xrtcnow);
+  #else
+  uint32_t xrtcnow = 0;
+  #endif
+
+  int source = 0;
+  mclock = 0;
+  if (comptime) {
+    mclock = comptime; 
+    source = 1;
+  }
+  
+  if (mvstime > mclock) {
+    mclock = mvstime;
+    source = 2;
+  }
+
+  if (xrtcnow > mclock) {
+    mclock = xrtcnow;
+    source = 3;
+  }
+
+  #if (ENABLE_DBG > 0)
+  if (source == 3) 
+    DBG("Using the time from the external real time clock")
+  else if (source == 2)  
+    DBG("Using the time saved in non volatile storage")
+  else if (source == 1)
+    DBG("Using the firmware compilation time")
+  else {
+    DBG("No valid time source found");
+    return; 
+  }
+  #endif
+
+  // update the system time to mclock
+  timeval tv;
+  tv.tv_sec = mclock ;
+  tv.tv_usec = 0;
+  int res = settimeofday(&tv, NULL);
+  #if (ENABLE_DBG > 0)
+    if (res) {
+      DBG("Unable to set the initial time of day");
+    } else {
+      struct tm* tminfo;
+      tminfo = gmtime(&tv.tv_sec);
+      char s[51];
+      strftime(s, 50, "%A, %B %d %Y %H:%M:%S", tminfo);
+      DBGF("UTC time set from last known time: %s\n", s);
+    }
+  #endif
+
+  // update the time in NVS and hardware real time clock
+  savemclock();
+}
+
 
 /***************/
 /* * * GPS * * */
@@ -365,7 +409,7 @@ void gpssetime(uint32_t gpsDate, uint32_t gpsTime, uint32_t gpsAge) {
   if (settimeofday(&tv, NULL)) { /// defined in ~/.platformio/packages/toolchain-xtensa-esp32/xtensa-esp32-elf/sys-include/sys/time.h
     DBGF("Error setting time, errno = %d\n", errno);
   } else {
-    #if (ENABLE_DBG == 1)
+    #if (ENABLE_DBG > 0)
       // read time back
       struct tm* tinfo;  // defined in ~/.platformio/packages/toolchain-xtensa-esp32/xtensa-esp32-elf/sys-include/time.h
       time(&now);
@@ -380,12 +424,12 @@ void gpssetime(uint32_t gpsDate, uint32_t gpsTime, uint32_t gpsAge) {
   }
 }
 
-
 bool updateRTC(void) {
   if (gps.date.isValid() && gps.time.isValid() && (gps.date.value())) {
     // NMEA messages such $GNRMC,,V,,,,,,,,,,M*4E return gps.date.isValid() = true
     // and gps.time.isValid() = true even when UTC Time == 0 and Date == 0
     // so a test that date of !0 is needed!
+    DBG("Valid gps time data obtained, update the system time (ESP RTC)");
     gpssetime(gps.date.value(), gps.time.value(), gps.time.age());
     return true;
   }
@@ -413,7 +457,12 @@ void setup() {
 
   delay(5000);     // time to start the serial monitor
 
+  #if (ENABLE_DBG > 0)
   DBG("Time Server");
+  #else
+  Serial.println("Time Server");
+  Serial.println("Serial output disabled.");
+  #endif
   DBG("setup()...");
 
   #if (HAS_DS3231 > 0)
@@ -486,7 +535,6 @@ void loop(void) {
   // timePollInterval = SYNC_POLL_TIME (=10000) initially and then
   // = GPS_POLL_TIME (=360000) after first update
   if (millis() - lastRtcUpdate >= timePollInterval) {
-    DBG("Time to update the RTC");
     lastRtcUpdate = millis();
     if (updateRTC())
       lastRtcCorrection = millis();
