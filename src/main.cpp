@@ -19,10 +19,19 @@ which runs on most ESP32 based boards
 #include "TinyGPSPlus.h"      // loaded with platformio directive
 
 
-// sanity check, dumping NMEA messages requires ENABLE_DBG = 1
+// Sanity checks 
+
+// Dumping NMEA messages requires ENABLE_DBG = 1
 #if (SHOW_NMEA>0) 
 #undef ENABLE_DBG
 #define ENABLE_DBG 1
+#endif
+
+// The ESP3C3 Mini with 0.42" OLED uses a different library
+// use HAS_OLED = 2 to identify that
+#if defined(ARDUINO_ESP32C3_OLED_MINI) and (HAS_OLED > 0)
+#undef HAS_OLED
+#define HAS_OLED 2
 #endif
 
 /******************************************/ 
@@ -129,33 +138,62 @@ NTP_Server NTPServer;
 /* * * Optional OLED display * * */
 /*********************************/
 
+#if (ENABLE_DBG > 0) || (HAS_OLED > 0) 
+
 // Used in some DBG/DBGF statements and for displaying time & date
-char timeBuffer[9];      // time format:  14:50 (synched) ~14:60~ (not synched or old)
-char dateBuffer[12];     // date format: 2023:11:31
+char timeBuffer[9];      // time format:  14:50 (synched) ~14:50~ (or 14*50) (not synched with GPS)
+char dateBuffer[12];     // date format: 2023/11/31
+
+#endif
 
 #if (HAS_OLED > 0)
 
-#include "SSD1306Wire.h" // 'ESP8266 and ESP32 OLED driver for SSD1306 displays' in .pio/libdeps
-
-//I2C SDA and SCL pins defined in variant pins_arduino.h
-SSD1306Wire display(0x3c, SDA, SCL, GEOMETRY_128_64);
-
-// move the time and date off centre by small amounts each
+// Move the time and date off centre by small amounts each
 // time they are drawn to avoid "burn-in" damage
 int jitter[3] = {-1, 0, 1};
 int xjit = 0;
 int yjit = 1;
 
-void Show(void) {
+
+#if (HAS_OLED > 1)
+
+#include "SSD1315.h"        // '72x40oled_lib' in .pio/libdeps
+
+SSD1315 display(NO_RESET_PIN); 
+
+void blinkDisplay(void) {
   display.clear();
-  int x = display.width()/2 + 2 + jitter[xjit];
-  int y = 2 + jitter[yjit];
-  display.drawString(x, y, timeBuffer);
-  display.drawString(x, display.height()/2 + y, dateBuffer);
-  xjit = (xjit + 1) % 3;
-  yjit = (yjit + 1) % 3;
   display.display();
+  delay(10);
+  display.invert(true);
+  delay(20);
+  display.invert(false);
+}  
+
+void InitDisplay(void) {
+   // SSD1315, 72x40 OLED
+  DBG("Initializing OLED display");
+  strlcpy(timeBuffer, "--:--", sizeof(timeBuffer));
+  strlcpy(dateBuffer, "--/--/--", sizeof(dateBuffer));
+  Wire.begin();
+  display.begin();
 }
+
+void display_drawCenteredString(int y, const char* str, int size) {
+  // **NOTE** size should be 5, 12 or 16 corresponding to the 3 fonts in the library
+  int xadv = (size <= 5) ? 5 : size / 2;
+  int wd = strlen(str)*xadv; // width of string in pixels
+  int x = (72-wd)/2 + ((wd < 70) ? jitter[xjit] : 0);
+  //DBGF("x: %d, y: %d, size: %d, xadv: %d, wd: %d, str: %s\n", x, y + jitter[yjit], size, xadv, wd, str);
+  display.drawString(x, y + jitter[yjit], str, size);
+}
+
+#else
+
+#include "SSD1306Wire.h" // 'ESP8266 and ESP32 OLED driver for SSD1306 displays' in .pio/libdeps
+
+  // I2C SDA and SCL pins defined in variant pins_arduino.
+SSD1306Wire display(0x3c, SDA, SCL, GEOMETRY_128_64);
 
 void blinkDisplay(void) {
   display.clear();
@@ -177,6 +215,35 @@ void InitDisplay(void) {
   display.displayOn();
   Show();
 }  
+#endif // #else part of (HAS_OLED > 0)
+
+void Show(void) {
+  display.clear();
+
+  //DBGF("xjit: %d, yjit: %d, jitter[x]: %d, jitter[y]: %d\n", xjit, yjit, jitter[xjit], jitter[yjit]);
+
+  #if (HAS_OLED > 1)
+
+  display_drawCenteredString(2, timeBuffer, 16);
+  display_drawCenteredString(22, dateBuffer, 16);  
+
+  #else 
+
+  int x = display.width()/2 + 2 + jitter[xjit];
+  int y = 2 + jitter[yjit];
+  display.drawString(x, y, timeBuffer);
+  display.drawString(x, display.height()/2 + y, dateBuffer);
+  xjit = (xjit + 1) % 3;
+  yjit = (yjit + 1) % 3;
+
+  #endif
+
+  xjit = (xjit + 1) % 3;
+  yjit = (yjit + 1) % 3;
+  
+  display.display();
+}
+
 #endif // HAS_OLED > 0
 
 
@@ -368,9 +435,11 @@ void loadmclock(void) {
 TinyGPSPlus gps;
 
 // Set to true as soon as the ESP RTC is updated with time from the GPS
+// and set to false when a valid time value has not been obtained from 
+// the GPS for longer than GPS_TIMEOUT milliseconds.
 bool timesynched = false;
 
-// Time between attempts at updating the ESP32 RTC
+// Time between attempts at updating the ESP32 RTC from GPS time 
 unsigned long timePollInterval = SYNC_POLL_TIME;
 // SYNC_POLL_TIME is the initial value that will  be changed 
 // to GPS_POLL_TIME after the first successful update from the GPS
@@ -449,10 +518,16 @@ bool updateRTC(void) {
   const char* timeZone = "UTC0";
 #endif
 
+const char* synchedTimeFormat = "%H:%M";       // 24 hour clock such as 15:40
+#if (HAS_OLED > 1)
+const char* notSynchedTimeFormat = "%H*%M";    // separating * shows time is "approximate" (not GPS based)
+const char* dateFormat = "%y/%m/%d";           // 26/03/20 (no room for 10 8x16 chars in a 72 pixel wide display)
+#else
+const char* notSynchedTimeFormat = "~%H:%M~";  // tildes show time is "approximate" (not GPS based)
+const char* dateFormat = "%Y/%m/%d";           // 2026/03/20 ISO 8601 is "%F"= "%Y-%m-%d"
+#endif       
+
 void fillTimeBuffers(time_t lastUTCTime) {
-  const char* synchedTimeFormat = "%H:%M";
-  const char* notSynchedTimeFormat = "~%H:%M~";  // tildes to show time is "approximate" 
-  const char* dateFormat = "%Y/%m/%d";           // ISO 8601 is "%F"= "%Y-%m-%d"
   struct tm timeinfo;
   // want the local time, so set the timezone
   setenv("TZ", timeZone, 1);
@@ -503,8 +578,7 @@ void setup() {
    // set RTC with mclock, the last known time or failing that the compile time
   loadmclock();
  
-  // Connect to the local network and start the NTP server
-  // if possible  
+  // Connect to the local network and start the NTP server if possible  
   if (NetworkConnect()) {  
     if (!NTPServer.begin(123)) {
       DBG("Unable to start NTP server");
