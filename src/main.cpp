@@ -157,18 +157,19 @@ void Show(void) {
   display.display();
 }
 
-void ShowNoGPS(bool notfound) {
+void blinkDisplay(void) {
   display.clear();
-  int x = display.width()/2;
-  display.drawString(x, 2, (notfound) ? "NO GPS" : "GPS");
-  display.drawString(x, display.height()/2 + 2, (notfound) ? "FOUND" : "LOST");
   display.display();
-}
+  delay(10);
+  display.invertDisplay();
+  delay(20);
+  display.normalDisplay();
+}  
 
 void InitDisplay(void) {
   DBG("Initializing OLED display");
   strlcpy(timeBuffer, "--:--", sizeof(timeBuffer));
-  strlcpy(dateBuffer, "----.--.--.", sizeof(dateBuffer));
+  strlcpy(dateBuffer, "----/--/--", sizeof(dateBuffer));
   display.init();
   display.flipScreenVertically();
   display.setTextAlignment(TEXT_ALIGN_CENTER);
@@ -436,16 +437,37 @@ bool updateRTC(void) {
   return false;
 }
 
+/***************************/
+/* * * fillTimeBuffers * * */
+/***************************/
 
-/*****************/
-/* * * setup * * */
-/*****************/
+#if (ENABLE_DBG > 0) || (HAS_OLED > 0)
 
 #if defined(LOCAL_TIME_ZONE)
   const char* timeZone = LOCAL_TIME_ZONE;
 #else
-  const char* timeZone = "AST4ADT,M3.2.0,M11.1.0";  // or perhaps "UTC0"
+  const char* timeZone = "UTC0";
 #endif
+
+void fillTimeBuffers(time_t lastUTCTime) {
+  const char* synchedTimeFormat = "%H:%M";
+  const char* notSynchedTimeFormat = "~%H:%M~";  // tildes to show time is "approximate" 
+  const char* dateFormat = "%Y/%m/%d";           // ISO 8601 is "%F"= "%Y-%m-%d"
+  struct tm timeinfo;
+  // want the local time, so set the timezone
+  setenv("TZ", timeZone, 1);
+  localtime_r(&lastUTCTime, &timeinfo);
+  strftime(timeBuffer, sizeof(timeBuffer), 
+     (timesynched) ? synchedTimeFormat : notSynchedTimeFormat, &timeinfo);
+  strftime(dateBuffer, sizeof(dateBuffer), dateFormat, &timeinfo);
+}
+
+#endif  // (ENABLE_DBG > 0) or (HAS_OLED > 0) 
+
+
+/*****************/
+/* * * setup * * */
+/*****************/
 
 void setup() {
   #ifdef SERIAL_BAUD
@@ -471,7 +493,8 @@ void setup() {
 
   #if (HAS_OLED > 0)
     InitDisplay();
-  #endif  
+    Show();
+  #endif  // HAS_OLED > 0
 
   DBG("Initializing serial connection to the GPS");
   hdwSerial.begin(GPSBaud, SERIAL_8N1, RXPin);
@@ -497,10 +520,6 @@ void setup() {
 // System millis tick count of the last attempt to perform an update of the ESP32 RTC
 // Not keeping track of whether it was a success or not.
 unsigned long lastRtcUpdate = 0;
-
-// System millis tick count of the last successful update of the ESP32 RTC from GPS data
-// Used to signify that the time is "approximate"
-unsigned long lastRtcCorrection = 0;
 
 // System millis tick count of the last attept to save the current RTC time to
 // non-volatile storage. This is done independently of whether the RTC has been
@@ -532,12 +551,10 @@ void loop(void) {
     gps.encode(c);
   }
 
-  // timePollInterval = SYNC_POLL_TIME (=10000) initially and then
-  // = GPS_POLL_TIME (=360000) after first update
-  if (millis() - lastRtcUpdate >= timePollInterval) {
+ if (millis() - lastRtcUpdate >= timePollInterval) {
+    //DBG("Time to update the system (ESP RTC) time"); // too much chatter
     lastRtcUpdate = millis();
-    if (updateRTC())
-      lastRtcCorrection = millis();
+    updateRTC();
   }
 
   if (millis() - mclocktimer >= SAVE_CLOCK_TIME) {
@@ -546,37 +563,40 @@ void loop(void) {
     savemclock();
   }
 
-  if ((gps.date.age() > GPS_WARNING_TIME) && (millis() - lastWarning > GPS_WARNING_TIME)) {
-    lastWarning = millis();
-    bool notfound = (timePollInterval < GPS_POLL_TIME);
-    DBG((notfound) ? "No GPS found" : "GPS lost") 
-    #if (HAS_OLED > 0)
-      ShowNoGPS(notfound);
-      delay(30000); // 30 second
-      Show();
-    #endif
+  // The following bit is only needed to handle a time display or the debug output to the serial monitor.
+  // It is not required to run the NTP server
+
+  #if (ENABLE_DBG > 0) || (HAS_OLED > 0)  
+
+  // has the link to GPS been made or been lost 
+  bool connected = (gps.time.age() < GPS_TIMEOUT);
+  bool statusChanged = false;
+  if (connected != timesynched) {  // status changed
+    if (connected) {
+      DBG("GPS acquired")
+    } else if (timesynched) {
+      DBG("GPS lost")
+    } else { 
+      DBG("No GPS found");
+    }  
+    timesynched = connected;
+    statusChanged = true;
   }
 
-  const char* synchedTimeFormat = "%H:%M";
-  const char* notSynchedTimeFormat = "~%H:%M~";  // tildes to show time is "approximate"
-
-  // Update clock on OLED at the 0 second mark, allowing for a few seconds window
-  // in case the system is busy for a full second at the start of the "new" minute
-  #define MINUTE_WINDOW 1
+  // display the current time at the start of a new minute
   time_t lastUTCTime;
-  if  (time(&lastUTCTime) % 60 == 0) {
-    struct tm timeinfo;
-    // want to show local time, so set the timezone
-    setenv("TZ", timeZone, 1);
-    localtime_r(&lastUTCTime, &timeinfo);
-    strftime(timeBuffer, sizeof(timeBuffer), ((timesynched)  && (millis() - lastRtcCorrection <= 2*GPS_POLL_TIME))
-      ? synchedTimeFormat
-      : notSynchedTimeFormat, &timeinfo);
-    strftime(dateBuffer, sizeof(dateBuffer), "%F", &timeinfo);
+  bool topOfMinute = (time(&lastUTCTime) % 60 == 0);
+  if (topOfMinute || statusChanged) {
+    #if (HAS_OLED > 0) 
+    if (statusChanged) blinkDisplay();
+    #endif  
+    statusChanged = false;
+    fillTimeBuffers(lastUTCTime);
     DBGF("Local time: %s %s (utc %u)\n", dateBuffer, timeBuffer, lastUTCTime);
     #if (HAS_OLED > 0)
     Show();
     #endif
-    delay(MINUTE_WINDOW*1100);  // delay for longer than the 0 second window
-  }
-}
+    if (topOfMinute) delay(1100);  // delay for longer than the 0 second window at top of minute
+  }  
+  #endif
+ }
