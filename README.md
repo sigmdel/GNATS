@@ -7,6 +7,8 @@ Runs on most ESP32 SoCs connected to a TinyGPSPlus supported GPS receiver.*
 
 ## Changes
 
+2026-05-13: Merged ethernet-test branch and deleted the latter.
+
 2026-05-12: Added support for the ESP32C3 Mini with 0.42" OLED display board.
 
 2026-05-10: Corrected the hardware serial configuration and added board definitions in `platformio.ini`. Cleaned up the code of `main.cpp`.
@@ -26,29 +28,39 @@ Runs on most ESP32 SoCs connected to a TinyGPSPlus supported GPS receiver.*
   - [Schematic - XIAO ESP32-xx](img/schematic.jpg)
   - [Schematic - ESP32-C3 Super Mini](img/schematic2.jpg)
   - [Schematic - ESP32-C3 Mini with 0.42" Dispaly](img/schematic3.jpg)
-  
+  - [Schematic - ESP32-devkit-c](img/schematic4.jpg)
 
 ## Libraries 
 
-  - [TinyGPSPlus](https://github.com/mikalhart/TinyGPSPlus.git) by Mikal Hart at [Arduiniana](http://arduiniana.org). The library reads the $GNRMC NMEA messages from the GPS receiver and makes available the date and time data, among many other bits of information. Licence: unknown.
+### Local librairies in [lib/](./lib) directory
 
   - [ntp_server](lib/ntp_server/ntp_server.h) is a modified version of the NTP server (`ntp_server.h` and `ntp_server.cpp`) in the ElektorLabs [180662 mini NTP with ESP32](https://github.com/ElektorLabs/180662-mini-NTP-ESP32). There is a project description in the ElektorMag [mini-NTP server with GPS](https://www.elektormagazine.com/labs/mini-ntp-server-with-gps). Licence: GPLv3 or later at user choice.
 
-  - [OLED SSD1306 (ESP8266/ESP32/Mbed-OS)](https://github.com/ThingPulse/esp8266-oled-ssd1306) by ThingPulse is used to print the date and time on a small 128x64 OLED screen. Licence: MIT.
-
-  - [72x40oled_lib](https://github.com/AbdulKus/72x40oled_lib) by AbdulKus that supports the 72x40 OLED display of some ESP32C3 (Super) Mini boards with 0.42" display. License: unknown.
-
-  - [Rtc](https://github.com/Makuna/Rtc) by Michael Miller (Makuna) is used to read a battery-powered DS3231 real time clock which will provide the initial time to set the ESP real time clock until GPS time is available. Licence: LGPLv3
-
   - [smalldebug](lib/smalldebug.h) just defines two macros: DBG(...) and DBG(...). These are used throughout the code instead of Serial.println(...) and Serial.printf(...). The advantage of using these macros is that all the print statements will be stripped from the compiled firmware when the ENABLE_DBG directive is set to 0 in `platformio.ini`. Licence: None.
 
+All the libraries in the [lib/](./lib) directory are compiled and linked into the firmware if needed. Consequently, they must not be added to the list of dependencies in the `platformio.ini` configuration file. In any case, it would not be possible to add them to the `lib_deps` entry because they are not found in public repositories.
+
+### Remote libraries 
+
+  - [TinyGPSPlus](https://github.com/mikalhart/TinyGPSPlus) by Mikal Hart at [Arduiniana](http://arduiniana.org). The library reads the $GNRMC NMEA messages from the GPS receiver and makes available the date and time data, among many other bits of information. Licence: unknown.
+
+  - [Rtc](https://github.com/Makuna/Rtc) by Michael Miller (Makuna) is used to read a battery-powered DS3231 real time clock which may be used to set the ESP system time initially until GPS time is available. Licence: LGPLv3
+  
+  - [ESP32-ENC28J60](https://github.com/tobozo/ESP32-ENC28J60) by tobozo which is a version of the esp32-arduino Ethernet Library which supports ENC28J60 adapter boards only. Licence: MIT.
+  
+  - [OLED SSD1306 (ESP8266/ESP32/Mbed-OS)](https://github.com/ThingPulse/esp8266-oled-ssd1306) by ThingPulse is used to print the date and time on a small 128x64 OLED screen. Licence: MIT.
+
+  - [72x40oled_lib](https://github.com/AbdulKus/72x40oled_lib) by AbdulKus that supports the 72x40 OLED display of some ESP32C3 (Super) Mini boards with 0.42" display. Licence: unknown.
+
+These libraries are specified in the `platformio.ini` configuration file and are automatically imported into the `.pio/libdeps/<board_name>` directory whenever the configuration file is modified.
+  
 ## Further documentation 
 
-[GNATS, a Tiny Basic ESP32 GPS Based NTP Server](https://sigmdel.ca/michel/program/esp32/arduino/esp32_gps_time_server_en.html)
+- [GNATS, a Tiny Basic ESP32 GPS Based NTP Server](https://sigmdel.ca/michel/program/esp32/arduino/esp32_gps_time_server_en.html)
 
-[Using a Local Network Time Server](https://sigmdel.ca/michel/program/esp32/arduino/local_timeserver_en.html)
+- [Using a Local Network Time Server](https://sigmdel.ca/michel/program/esp32/arduino/local_timeserver_en.html)
 
-[mini_esp32c3_oled_sketches](https://github.com/sigmdel/mini_esp32c3_oled_sketches)
+- [mini_esp32c3_oled_sketches](https://github.com/sigmdel/mini_esp32c3_oled_sketches)
 
 ## Warning
 
@@ -56,7 +68,7 @@ GNATS should not be used as the primary time source. Nevertheless, it may be acc
 
 ## Configuration before compiling
 
-- Edit [secrets.h.template](src/secrets.h.template) and save it as `secrets.h` in the `src` directory.
+- If a wireless Wi-Fi connection to the local area network is used, edit [secrets.h.template](src/secrets.h.template) as needed and save it as `secrets.h` in the `src` directory. On the other hand, if a wired Ethernet connection is used, edit [netaddr.h.template](src/netaddr.h.template) as needed and save it as `netaddr.h` in the `src` directory.
 
 - Edit `platformio.ini` :
 
@@ -68,8 +80,18 @@ GNATS should not be used as the primary time source. Nevertheless, it may be acc
     - For dev boards with ESP32 SoC without support for USB CDC (USB ACM), specify the `SERIAL_BAUD` for the USB-serial adapter (see the `lolin32_lite` environment).
     - If a supported I2C OLED display is connected to the board set the `HAS_OLED` directive to `1` otherwise to `0`. 
     - If a DS3231 Real time clock module is connected to the board set the `HAS_DS3231` to `1` otherwise to `0`.
+    - Specify the type of connection to the local network with the `NET_INTF` macro which can be set to 0 for no connection, 1 for a wired Ethernet connection, or 2 for a wireless Wi-Fi connection. Only ENC28J60 based Ethernet adapter boards are suppported.
     - It may be helpful to specify the Wi-Fi TX power of some ESP32C3 Super mini board (see the `nologo_esp32c3_super_mini` environment). See the `wifi_power_t` definition
       in `...framework-arduinoespressif32/libraries/WiFi/src/WiFiGeneric.h` for possible values of `TX_POWER`.
+    - If an Ethernet connection is specified, then an interrupt pin (`SPI_INT`), the SPI bus and the I/O pins attached to the SPI controller must be specified. Two SPI buses are available on a classic ESP32 SoC. The typical pin assignemnt is shown in the table below, but other pins may have been specified in the variant `pins_arduino.h` file.
+      | SPI bus | MOSI  | MISO | CLK | CS |
+      | :---: | :---:  | :---: | :---: | :---: |
+      | VSPI | 23  | 19 | 18 | 5 |
+      | HSPI | 13  | 12 | 14 | 15 |
+
+      See the `az-delivery-devkit-v4` environment for an example. 
+      
+
 
 ## Licence
 

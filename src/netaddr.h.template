@@ -1,0 +1,8 @@
+// File: netaddr.h.template
+// Modify to suit local conditions and then save as netaddr.h
+
+#pragma once
+
+#define LAN_STAIP    "192.168.1.23"
+#define LAN_GATEWAY  "192.168.1.1"
+#define LAN_MASK     "255.255.255.0"

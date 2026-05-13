@@ -5,8 +5,9 @@
 | |_| | |\  |/ ___ \| |  ___) |
  \____|_| \_/_/   \_\_| |____/  GNATS' Not Accurate Time Server
 
-A tiny and very basic NTP server based on a GPS receiver 
-which runs on most ESP32 based boards
+A tiny and very basic NTP server based on a GPS receiver and running
+on ESP32 boards such as the SeeedStudio XIAO ESP32xx, the 
+ESP32C3 Super Mini, and classic ESP32 modules such as the Lolin32 lite.
 
 */
 
@@ -20,19 +21,32 @@ which runs on most ESP32 based boards
 
 
 // Sanity checks 
+// -------------
 
 // Dumping NMEA messages requires ENABLE_DBG = 1
 #if (SHOW_NMEA>0) 
-#undef ENABLE_DBG
-#define ENABLE_DBG 1
+  #undef ENABLE_DBG
+  #define ENABLE_DBG 1
 #endif
 
-// The ESP3C3 Mini with 0.42" OLED uses a different library
-// use HAS_OLED = 2 to identify that
+// The ESP3C3 Mini with 0.42" OLED uses the 72x40oled_lib
+// use HAS_OLED = 2 to identify that library
 #if defined(ARDUINO_ESP32C3_OLED_MINI) and (HAS_OLED > 0)
-#undef HAS_OLED
-#define HAS_OLED 2
+  #undef HAS_OLED
+  #define HAS_OLED 2
 #endif
+
+#if (NET_INTF != 0) && (NET_INTF != 1) && (NET_INTF !=2)
+  #error "Must define NET_INTF = (0 | 1 | 2) where  0=None, 1=Ethernet, 2=Wi-Fi"
+#endif
+
+#if (NET_INTF == 0) && (HAS_OLED == 0)
+  #if (ENABLE_DBG > 0)
+    #warning "This version will only output debug messages"
+  #else
+    #warning "This version will not do anything useful"
+  #endif
+#endif  
 
 /******************************************/ 
 /* * * Serial Interface to GPS Module * * */
@@ -40,19 +54,13 @@ which runs on most ESP32 based boards
 
 // Serial interface used to talk to the GPS
 #if defined(HDW_SERIAL_INTF)
-  // Explicit serial peripheral
-#define hdwSerial HDW_SERIAL_INTF
+  #define hdwSerial HDW_SERIAL_INTF  // Explicit serial peripheral
+#elif (ARDUINO_USB_CDC_ON_BOOT > 0)  // else try to guess
+  #define hdwSerial Serial0
 #else
-  // Guess which serial peripheral 
-#if !defined(ARDUINO_USB_CDC_ON_BOOT)
-#define ARDUINO_USB_CDC_ON_BOOT 0
+  #define hdwSerial Serial1
 #endif
-#if (ARDUINO_USB_CDC_ON_BOOT > 0)
-#define hdwSerial Serial0
-#else
-#define hdwSerial Serial1
-#endif
-#endif
+
 
 #if defined(UART_RX_PIN)
   // Explicit UART RX pin to use
@@ -73,6 +81,8 @@ static const unsigned long GPSBaud = 9600;
 /******************************/
 /* * * Network Connection * * */
 /******************************/
+
+#if (NET_INTF == 2)
 
 #include <WiFi.h>
 #include "secrets.h"              // use secrets.h.template to create this file in src/
@@ -127,6 +137,92 @@ bool NetworkConnect(void) {
 
   return WiFi.isConnected();
 }
+
+// end USE_WIFI > 0
+
+#elif (NET_INTF == 1)
+
+#include "ESP32-ENC28J60.h"       // hardware driver for Ethernet module in .pio/libdeps/
+#include "netaddr.h"              // use netaddr.h.template to create this file in src/
+
+/* Hardware connection
+   
+ESP32 PINS <--> ECN28J60 PINS
+----------      -------------
+  SPI_INT          NT
+  SPI_MISO         SO
+  SPI_MOSI         SI
+  SPI_SCLK         SCK
+  SPI_CS           CS
+*/
+
+#define SPI_CLOCK_MHZ  8
+
+bool NetworkConnect(void) {
+  IPAddress staip, gateway, mask, local;
+  staip.fromString(LAN_STAIP);
+  gateway.fromString(LAN_GATEWAY);
+  mask.fromString(LAN_MASK);
+  DBG("Connecting to Ethernet network");
+  DBGF("  static IP: %s\n", staip.toString().c_str());
+  DBGF("  gateway:   %s\n", gateway.toString().c_str());
+  DBGF("  mask:      %s\n", mask.toString().c_str());
+
+  ETH.begin(SPI_MISO, SPI_MOSI, SPI_SCLK, SPI_CS, SPI_INT, SPI_CLOCK_MHZ, SPI_BUS); 
+  
+  /* 
+  "Ethernet doesn't use WiFi Events anymore" @ https://github.com/tobozo/ESP32-ENC28J60/issues/20#issuecomment-2602079048
+  and ENC28J60Class::linkUp() seems to always return false so it is not clear if the link is up.
+
+  Could not use DreamerDeLy' contribution @ https://github.com/tobozo/ESP32-ENC28J60/issues/24 because an ESP_ERR_INVALID_STATE
+  error would occur when trying to register the ETH_EVENT and IP_EVENT handler.
+
+  So using workaround suggested by maxt @ https://github.com/tobozo/ESP32-ENC28J60/issues/20#issuecomment-2601857393 to 
+  determine if Ethernet is connected. 
+  */
+
+  static bool eth_connected = false;
+  unsigned long connect_time = millis();
+  while(!eth_connected) {
+    local = ETH.localIP();
+    if (!local.toString().equals("0.0.0.0")) {
+      ETH.config(staip, gateway, mask); // set static address
+      eth_connected = true;
+    } else {
+      delay(500);
+      #if (ENABLE_DBG > 0)
+      Serial.print(".");
+      #endif
+      if (millis() - connect_time > CONNECT_TIMEOUT) 
+        break;
+    }    
+  }
+  #if (ENABLE_DBG > 0)
+  Serial.println();
+  #endif
+ 
+  if (eth_connected) {
+    DBGF("Connected at %d Mbps (MAC: %s)\n", ETH.linkSpeed(), ETH.macAddress().c_str());
+    DBGF("Starting NTP server at %s:%d\n", ETH.localIP().toString().c_str(), 123);
+  } else {
+    DBG("Unable to connect");
+    DBG("Unable to start NTP server");
+  }
+
+  return eth_connected;
+}
+  
+
+#else // NET_INTF == 0
+
+bool NetworkConnect(void) {
+  DBG("A network interface has not been specified");
+  DBG("Unable to start NTP server");
+  return false;
+}   
+
+#endif // NET_INTF 
+
 
 /**********************/
 /* * * NTP server * * */
@@ -213,7 +309,6 @@ void InitDisplay(void) {
   display.setTextAlignment(TEXT_ALIGN_CENTER);
   display.setFont(ArialMT_Plain_24);
   display.displayOn();
-  Show();
 }  
 #endif // #else part of (HAS_OLED > 0)
 
@@ -372,6 +467,7 @@ void loadmclock(void) {
   #if (HAS_DS3231 > 0)
   uint32_t xrtcnow = extRtcTime();
   DBGF("Time from external real time clock: %d\n", xrtcnow);
+  if (!xrtcnow) DBG("*** Check external real time clock battery ***");
   #else
   uint32_t xrtcnow = 0;
   #endif
