@@ -7,6 +7,8 @@ Runs on most ESP32 SoCs connected to a TinyGPSPlus supported GPS receiver.*
 
 ## Changes
 
+2026-05-12: Added support for the ESP32C3 Mini with 0.42" OLED display board.
+
 2026-05-10: Corrected the hardware serial configuration and added board definitions in `platformio.ini`. Cleaned up the code of `main.cpp`.
 
 2025-10-30: Added a [-?|-h|--help] command line option to the NTP client utilities in `utils/`.
@@ -17,12 +19,14 @@ Runs on most ESP32 SoCs connected to a TinyGPSPlus supported GPS receiver.*
 
 ## Hardware used
 
-  - ESP32 development board with Wi-Fi such as XIAO ESP32S3, ESP32C3 Super Mini, Lolin32_lite.
+  - ESP32 development board with Wi-Fi such as XIAO ESP32S3, ESP32C3 Super Mini, Super Mini with 0.42" display, Lolin32_lite.
   - GPS receiver supported by TinyGPSPlus such as the ATGM336H 5N-31
   - DS3231 battery backed real time clock (optional)
   - SSD1306 128x64 I2C OLED display (optional)
   - [Schematic - XIAO ESP32-xx](img/schematic.jpg)
   - [Schematic - ESP32-C3 Super Mini](img/schematic2.jpg)
+  - [Schematic - ESP32-C3 Mini with 0.42" Dispaly](img/schematic3.jpg)
+  
 
 ## Libraries 
 
@@ -30,8 +34,9 @@ Runs on most ESP32 SoCs connected to a TinyGPSPlus supported GPS receiver.*
 
   - [ntp_server](lib/ntp_server/ntp_server.h) is a modified version of the NTP server (`ntp_server.h` and `ntp_server.cpp`) in the ElektorLabs [180662 mini NTP with ESP32](https://github.com/ElektorLabs/180662-mini-NTP-ESP32). There is a project description in the ElektorMag [mini-NTP server with GPS](https://www.elektormagazine.com/labs/mini-ntp-server-with-gps). Licence: GPLv3 or later at user choice.
 
-  - [OLED SSD1306 (ESP8266/ESP32/Mbed-OS)](https://github.com/ThingPulse/esp8266-oled-ssd1306)
-by ThingPulse is used to print the date and time on a small OLED screen. Licence: MIT.
+  - [OLED SSD1306 (ESP8266/ESP32/Mbed-OS)](https://github.com/ThingPulse/esp8266-oled-ssd1306) by ThingPulse is used to print the date and time on a small 128x64 OLED screen. Licence: MIT.
+
+  - [72x40oled_lib](https://github.com/AbdulKus/72x40oled_lib) by AbdulKus that supports the 72x40 OLED display of some ESP32C3 (Super) Mini boards with 0.42" display. License: unknown.
 
   - [Rtc](https://github.com/Makuna/Rtc) by Michael Miller (Makuna) is used to read a battery-powered DS3231 real time clock which will provide the initial time to set the ESP real time clock until GPS time is available. Licence: LGPLv3
 
@@ -42,6 +47,8 @@ by ThingPulse is used to print the date and time on a small OLED screen. Licence
 [GNATS, a Tiny Basic ESP32 GPS Based NTP Server](https://sigmdel.ca/michel/program/esp32/arduino/esp32_gps_time_server_en.html)
 
 [Using a Local Network Time Server](https://sigmdel.ca/michel/program/esp32/arduino/local_timeserver_en.html)
+
+[mini_esp32c3_oled_sketches](https://github.com/sigmdel/mini_esp32c3_oled_sketches)
 
 ## Warning
 
